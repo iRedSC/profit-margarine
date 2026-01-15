@@ -1,0 +1,455 @@
+"use node";
+
+import { v } from "convex/values";
+import { internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
+import AmazonSPAPI from "amazon-sp-api";
+import {
+    generateMonthlyBatches,
+    updateSyncProgress,
+    handleSyncError,
+    processWithProgress,
+    isSyncCanceled,
+    validateSyncActive,
+} from "./marketplaceUtils";
+import { finishSync } from "./marketplaceSync";
+import { SyncMessages } from "./syncMessages";
+const SellingPartnerAPI = (AmazonSPAPI as any).default || AmazonSPAPI;
+
+// Add your Amazon SP-API credentials as environment variables:
+// - AMAZON_CLIENT_ID (LWA Client ID)
+// - AMAZON_CLIENT_SECRET (LWA Client Secret)
+// - AMAZON_REFRESH_TOKEN (Refresh Token)
+// - AMAZON_REGION (must be "na", "eu", or "fe")
+
+function getSellingPartnerAPI() {
+    const clientId = process.env.AMAZON_CLIENT_ID;
+    const clientSecret = process.env.AMAZON_CLIENT_SECRET;
+    const refreshToken = process.env.AMAZON_REFRESH_TOKEN;
+    const regionEnv = process.env.AMAZON_REGION;
+
+    if (!clientId || !clientSecret || !refreshToken) {
+        throw new Error(
+            "Amazon API credentials not configured. Please set AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET, AMAZON_REFRESH_TOKEN, and AMAZON_REGION environment variables."
+        );
+    }
+
+    // Validate region
+    const validRegions = ["na", "eu", "fe"];
+    const region =
+        regionEnv && validRegions.includes(regionEnv) ? regionEnv : null;
+
+    if (!region) {
+        throw new Error(
+            `Invalid AMAZON_REGION. Please set it to one of: "na" (North America), "eu" (Europe), or "fe" (Far East). Current value: ${regionEnv || "not set"}`
+        );
+    }
+
+    return new SellingPartnerAPI({
+        region: region,
+        refresh_token: refreshToken,
+        credentials: {
+            SELLING_PARTNER_APP_CLIENT_ID: clientId,
+            SELLING_PARTNER_APP_CLIENT_SECRET: clientSecret,
+        },
+    });
+}
+
+export const processAmazonOrder = internalAction({
+    args: {
+        userId: v.id("users"),
+        orderId: v.string(),
+        updateExisting: v.optional(v.boolean()),
+    },
+    handler: async (ctx, args) => {
+        const log: {
+            orderId: string;
+            steps: string[];
+            errors: Array<{ step: string; error: string }>;
+            skipped: boolean;
+            itemsProcessed: number;
+        } = {
+            orderId: args.orderId,
+            steps: [],
+            errors: [],
+            skipped: false,
+            itemsProcessed: 0,
+        };
+
+        try {
+            const spApi = getSellingPartnerAPI();
+            log.steps.push("Initialized Amazon SP-API client");
+
+            // First, get the order details to get the timestamp
+            const orderResponse = await spApi.callAPI({
+                operation: "getOrder",
+                endpoint: "orders",
+                path: {
+                    orderId: args.orderId,
+                },
+            });
+            log.steps.push("Fetched order details");
+
+            const orderTimestamp = new Date(
+                orderResponse.PurchaseDate
+            ).getTime();
+
+            // Check if order already exists (by orderId and orderDate)
+            const orderExists = await ctx.runQuery(
+                internal.products.checkOrderExists,
+                {
+                    userId: args.userId,
+                    orderId: args.orderId,
+                    orderDate: orderTimestamp,
+                }
+            );
+
+            if (orderExists && !args.updateExisting) {
+                log.skipped = true;
+                log.steps.push("Order already exists, skipped");
+                console.error(JSON.stringify(log));
+                return { success: true, itemsProcessed: 0, skipped: true };
+            }
+
+            const orderItemsResponse = await spApi.callAPI({
+                operation: "getOrderItems",
+                endpoint: "orders",
+                path: {
+                    orderId: args.orderId,
+                },
+            });
+            log.steps.push("Fetched order items");
+
+            const orderItems = orderItemsResponse.OrderItems || [];
+
+            // Calculate total shipping cost for the order to split across items
+            let totalOrderShipping = 0;
+
+            // Calculate total buyer paid shipping from order items
+            let totalBuyerPaidShipping = 0;
+            for (const item of orderItems) {
+                const shippingPrice = parseFloat(
+                    item.ShippingPrice?.Amount || "0"
+                );
+                totalBuyerPaidShipping += shippingPrice;
+            }
+
+            // Get financial events for this order to get actual fees and shipping costs
+            let financialEvents = null;
+            try {
+                const financialResponse = await spApi.callAPI({
+                    operation: "listFinancialEventsByOrderId",
+                    endpoint: "finances",
+                    path: {
+                        orderId: args.orderId,
+                    },
+                });
+                financialEvents = financialResponse.FinancialEvents;
+                log.steps.push("Fetched financial events");
+            } catch (error: any) {
+                log.errors.push({
+                    step: "fetch_financial_events",
+                    error: error.message || String(error),
+                });
+            }
+
+            // Calculate total shipping from AdjustmentEventList
+            if (financialEvents?.AdjustmentEventList) {
+                for (const adjustment of financialEvents.AdjustmentEventList) {
+                    if (
+                        adjustment.AdjustmentType === "PostageBilling_Postage"
+                    ) {
+                        totalOrderShipping += Math.abs(
+                            parseFloat(
+                                adjustment.AdjustmentAmount?.CurrencyAmount ||
+                                    "0"
+                            )
+                        );
+                    }
+                }
+            }
+            log.steps.push("Calculated shipping costs");
+
+            // Calculate total quantity across all items
+            const totalQuantity = orderItems.reduce(
+                (sum: number, item: any) => {
+                    return sum + parseInt(item.QuantityOrdered || "1");
+                },
+                0
+            );
+
+            // Split shipping evenly across all units
+            const shippingPerUnit =
+                totalQuantity > 0 ? totalOrderShipping / totalQuantity : 0;
+
+            // Split buyer paid shipping evenly across all units (using same shippingPercentage)
+            const buyerPaidShippingPerUnit =
+                totalQuantity > 0 ? totalBuyerPaidShipping / totalQuantity : 0;
+
+            let itemsCreated = 0;
+            for (const item of orderItems) {
+                const price = parseFloat(item.ItemPrice?.Amount || "0");
+                if (price === 0) {
+                    continue;
+                }
+                const quantity = parseInt(item.QuantityOrdered || "1");
+
+                // Get actual fees from financial events
+                let actualFees = 0;
+
+                if (financialEvents?.ShipmentEventList) {
+                    for (const shipmentEvent of financialEvents.ShipmentEventList) {
+                        if (shipmentEvent.AmazonOrderId === args.orderId) {
+                            // Get item-level fees from ShipmentItemList
+                            if (shipmentEvent.ShipmentItemList) {
+                                for (const shipmentItem of shipmentEvent.ShipmentItemList) {
+                                    if (
+                                        shipmentItem.SellerSKU ===
+                                        item.SellerSKU
+                                    ) {
+                                        // Sum all item fees (Amazon fees, not customer charges)
+                                        if (shipmentItem.ItemFeeList) {
+                                            for (const fee of shipmentItem.ItemFeeList) {
+                                                actualFees += Math.abs(
+                                                    parseFloat(
+                                                        fee.FeeAmount
+                                                            ?.CurrencyAmount ||
+                                                            "0"
+                                                    )
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Get order-level fees from OrderFeeList
+                            if (shipmentEvent.OrderFeeList) {
+                                for (const fee of shipmentEvent.OrderFeeList) {
+                                    actualFees += Math.abs(
+                                        parseFloat(
+                                            fee.FeeAmount?.CurrencyAmount || "0"
+                                        )
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If we didn't get financial data, fall back to estimates
+                if (actualFees === 0) {
+                    actualFees = price * 0.15;
+                }
+
+                // Divide fees and price by quantity to get per-unit values
+                const feesPerUnit = actualFees / quantity;
+                const pricePerUnit = price / quantity;
+
+                // Don't update message here - let the main sync loop handle it
+
+                // Calculate shipping percentage (what % of total order shipping this unit represents)
+                const shippingPercentage =
+                    totalOrderShipping > 0
+                        ? (shippingPerUnit / totalOrderShipping) * 100
+                        : 0;
+
+                // Create a marketplace product for each quantity
+                for (let i = 0; i < quantity; i++) {
+                    await ctx.runMutation(
+                        internal.products.upsertProductFromAmazon,
+                        {
+                            userId: args.userId,
+                            sku: item.SellerSKU,
+                            name: item.Title,
+                            price: pricePerUnit,
+                            fees: feesPerUnit,
+                            shipping: shippingPerUnit,
+                            shippingPercentage,
+                            buyerPaidShipping: buyerPaidShippingPerUnit,
+                            orderTimestamp,
+                            orderId: args.orderId,
+                            OrderId: args.orderId,
+                            updateExisting: args.updateExisting ?? false,
+                        }
+                    );
+                    log.itemsProcessed++;
+                }
+            }
+
+            log.steps.push(`Created ${log.itemsProcessed} product records`);
+            console.error(JSON.stringify(log));
+            return { success: true, itemsProcessed: orderItems.length };
+        } catch (error: any) {
+            log.errors.push({
+                step: "process_order",
+                error: error.message || String(error),
+            });
+            console.error(JSON.stringify(log));
+            throw error;
+        }
+    },
+});
+
+export const syncAmazonOrdersOneYear = internalAction({
+    args: {
+        userId: v.id("users"),
+        syncId: v.id("syncs"),
+        updateExisting: v.optional(v.boolean()),
+    },
+    handler: async (ctx, args) => {
+        try {
+            // Validate sync exists and is active before starting
+            await validateSyncActive(ctx, args.syncId);
+
+            const spApi = getSellingPartnerAPI();
+
+            // Amazon requires LastUpdatedBefore to be at least 2 minutes before current time
+            // Subtract 3 minutes for safety margin
+            const endDate = new Date(Date.now() - 3 * 60 * 1000);
+            const startDate = new Date();
+            startDate.setFullYear(startDate.getFullYear() - 1);
+
+            const batches = generateMonthlyBatches(startDate, endDate);
+
+            // First, collect all orders from all batches
+            await updateSyncProgress(
+                ctx,
+                args.syncId,
+                SyncMessages.fetching("amazon"),
+                { current: 0, total: 0 }
+            );
+
+            const allOrders: Array<{ AmazonOrderId: string }> = [];
+
+            for (
+                let batchIndex = 0;
+                batchIndex < batches.length;
+                batchIndex++
+            ) {
+                // Validate sync exists and is active before processing each batch
+                await validateSyncActive(ctx, args.syncId);
+
+                const batch = batches[batchIndex];
+                const batchStartDate = batch.start.toISOString();
+
+                const ordersResponse = await spApi.callAPI({
+                    operation: "getOrders",
+                    endpoint: "orders",
+                    query: {
+                        MarketplaceIds: ["ATVPDKIKX0DER"], // US marketplace
+                        LastUpdatedAfter: batchStartDate,
+                        LastUpdatedBefore: batch.end.toISOString(),
+                        OrderStatuses: ["Shipped"],
+                    },
+                });
+
+                const orders = ordersResponse.Orders || [];
+                allOrders.push(...orders);
+
+                // Small delay between batches to avoid rate limiting
+                if (batchIndex < batches.length - 1) {
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+            }
+
+            // Now process all orders with proper progress tracking
+            await processWithProgress(
+                ctx,
+                args.syncId,
+                allOrders,
+                async (order: { AmazonOrderId: string }, _i) => {
+                    await ctx.runAction(internal.amazon.processAmazonOrder, {
+                        userId: args.userId,
+                        orderId: order.AmazonOrderId,
+                        updateExisting: args.updateExisting ?? false,
+                    });
+                },
+                "amazon"
+            );
+
+            // Validate sync exists and is active before finishing
+            await validateSyncActive(ctx, args.syncId);
+
+            await finishSync(ctx, args.syncId, "amazon");
+
+            return { success: true, ordersProcessed: allOrders.length };
+        } catch (error: any) {
+            // Don't treat cancellation or missing sync as an error - it's expected
+            if (error.message === "Sync was canceled" || 
+                error.message === "Sync does not exist" ||
+                error.message?.includes("Sync is not active")) {
+                return { success: false, canceled: true };
+            }
+            // Only handle error if sync still exists
+            const syncExists = await ctx.runQuery(internal.products.getSyncById, { syncId: args.syncId });
+            if (syncExists) {
+                await handleSyncError(ctx, args.syncId, error, "amazon");
+            }
+            throw error;
+        }
+    },
+});
+
+export const syncAmazonOrders = internalAction({
+    args: {
+        userId: v.id("users"),
+        syncId: v.id("syncs"),
+        startDate: v.optional(v.string()),
+        updateExisting: v.optional(v.boolean()),
+    },
+    handler: async (ctx, args) => {
+        try {
+            // Validate sync exists and is active before starting
+            await validateSyncActive(ctx, args.syncId);
+
+            const spApi = getSellingPartnerAPI();
+
+            // Default to last 24 hours if no start date provided
+            const startDate =
+                args.startDate ||
+                new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
+            const ordersResponse = await spApi.callAPI({
+                operation: "getOrders",
+                endpoint: "orders",
+                query: {
+                    MarketplaceIds: ["ATVPDKIKX0DER"], // US marketplace - change as needed
+                    LastUpdatedAfter: startDate,
+                    // Only fetch shipped orders
+                    OrderStatuses: ["Shipped"],
+                },
+            });
+
+            const orders = ordersResponse.Orders || [];
+
+            await processWithProgress(
+                ctx,
+                args.syncId,
+                orders,
+                async (order: { AmazonOrderId: string }, _i) => {
+                    await ctx.runAction(internal.amazon.processAmazonOrder, {
+                        userId: args.userId,
+                        orderId: order.AmazonOrderId,
+                        updateExisting: args.updateExisting ?? false,
+                    });
+                },
+                "amazon"
+            );
+
+            await finishSync(ctx, args.syncId, "amazon");
+
+            return { success: true, ordersProcessed: orders.length };
+        } catch (error: any) {
+            console.error("Error details:", error.message);
+            if (error.response) {
+                console.error(
+                    "API Response:",
+                    JSON.stringify(error.response, null, 2)
+                );
+            }
+            await handleSyncError(ctx, args.syncId, error, "amazon");
+            throw error;
+        }
+    },
+});
