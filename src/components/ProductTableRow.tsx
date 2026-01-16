@@ -6,6 +6,7 @@ import {
     getOrderUrl,
 } from "../lib/productUtils";
 import { ContextMenu } from "./ContextMenu";
+import { Tooltip } from "./Tooltip";
 
 type Product = {
     _id: Id<"marketplaceProducts">;
@@ -15,6 +16,7 @@ type Product = {
     price: number;
     cost: number | undefined;
     fees: number;
+    fees_breakdown?: Array<Array<string | number>>;
     shipping: number;
     shippingPercentage: number | undefined;
     buyerPaidShipping: number | undefined;
@@ -98,6 +100,7 @@ export function ProductTableRow({
             await onResyncOrder(product._id);
         }
     };
+
 
     return (
         <>
@@ -186,24 +189,140 @@ export function ProductTableRow({
                 )}
             </td>
             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                ${product.fees.toFixed(2)}
+                {product.fees_breakdown &&
+                    product.fees_breakdown.length > 0 &&
+                    product.fees_breakdown.some(
+                        (fee) =>
+                            typeof fee[1] === "number" && fee[1] > 0
+                    ) ? (
+                    <Tooltip
+                        content={(() => {
+                            // Helper function to check if fee is estimated
+                            // We know these specific fee types are estimated because they're created/calculated in the code
+                            const isEstimated = (feeType: string): boolean => {
+                                // eBay estimated fee (fallback when no API data)
+                                if (feeType === "Final Value Fee (Estimated)") {
+                                    return true;
+                                }
+                                // Amazon estimated fee (fallback when no API data)
+                                if (feeType === "Amazon Fee (Estimated 15%)") {
+                                    return true;
+                                }
+                                // Shopify fees are calculated (not from API)
+                                if (feeType === "Transaction Fee (2.9%)" || feeType === "Transaction Fee (Fixed $0.30)") {
+                                    return true;
+                                }
+                                return false;
+                            };
+
+                            // Helper function to format fee type text
+                            const formatFeeType = (feeType: string, isEstimated: boolean): string => {
+                                // Remove "(Estimated)" or "(Estimated 15%)" from the text
+                                let formatted = feeType
+                                    .replace(/ \(Estimated\)/gi, "")
+                                    .replace(/ \(Estimated 15%\)/gi, "");
+                                
+                                // Replace underscores with spaces
+                                formatted = formatted.replace(/_/g, " ");
+                                
+                                // Convert to title case (capitalize first letter of each word)
+                                formatted = formatted.replace(/\b\w/g, (char) =>
+                                    char.toUpperCase()
+                                );
+                                
+                                return formatted;
+                            };
+
+                            // Filter out fees with 0 amount and map to typed format
+                            const validFees = product.fees_breakdown
+                                .filter((fee) => {
+                                    const amount =
+                                        typeof fee[1] === "number"
+                                            ? fee[1]
+                                            : 0;
+                                    return amount > 0;
+                                })
+                                .map((fee) => {
+                                    const rawType =
+                                        typeof fee[0] === "string"
+                                            ? fee[0]
+                                            : "Fee";
+                                    const estimated = isEstimated(rawType);
+                                    return {
+                                        type: formatFeeType(rawType, estimated),
+                                        rawType: rawType,
+                                        amount:
+                                            typeof fee[1] === "number"
+                                                ? fee[1]
+                                                : 0,
+                                        isEstimated: estimated,
+                                    };
+                                });
+
+                            if (validFees.length === 0) {
+                                return null;
+                            }
+
+                            const hasEstimatedFees = validFees.some(
+                                (fee) => fee.isEstimated
+                            );
+
+                            return (
+                                <div className="w-64">
+                                    <div className="space-y-2.5">
+                                        {validFees.map((fee, index) => (
+                                            <div
+                                                key={index}
+                                                className="flex justify-between items-center gap-4"
+                                            >
+                                                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide truncate flex-shrink">
+                                                    {fee.type}
+                                                    {fee.isEstimated && (
+                                                        <span className="text-gray-400 ml-1">
+                                                            *
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <span className="text-sm font-semibold text-gray-900 whitespace-nowrap flex-shrink-0">
+                                                    ${fee.amount.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                        <div className="border-t border-gray-200 pt-2.5 mt-2.5 flex justify-between items-center gap-4">
+                                            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                                Total Fees
+                                            </span>
+                                            <span className="text-sm font-bold text-gray-900 whitespace-nowrap flex-shrink-0">
+                                                ${product.fees.toFixed(2)}
+                                            </span>
+                                        </div>
+                                        {hasEstimatedFees && (
+                                            <div className="pt-1 mt-1 border-t border-gray-100">
+                                                <span className="text-xs text-gray-500 italic">
+                                                    *Estimated
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                    >
+                        <span className="cursor-help underline decoration-dotted decoration-gray-400 hover:decoration-gray-600">
+                            ${product.fees.toFixed(2)}
+                        </span>
+                    </Tooltip>
+                ) : (
+                    <span>${product.fees.toFixed(2)}</span>
+                )}
             </td>
             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                 <div className="flex flex-col items-end">
-                    <div className="group relative">
-                        <span
-                            className={
-                                product.buyerPaidShipping !== undefined &&
-                                product.buyerPaidShipping !== 0
-                                    ? "cursor-help underline decoration-dotted decoration-gray-400 hover:decoration-gray-600"
-                                    : ""
-                            }
-                        >
-                            ${netShipping.toFixed(2)}
-                        </span>
-                        {product.buyerPaidShipping !== undefined &&
-                            product.buyerPaidShipping !== 0 && (
-                                <div className="absolute right-0 top-full mt-2 hidden group-hover:block z-[100] w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-3 px-4">
+                    {product.buyerPaidShipping !== undefined &&
+                    product.buyerPaidShipping !== 0 ? (
+                        <Tooltip
+                            content={
+                                <div className="w-56">
                                     <div className="space-y-2.5">
                                         <div className="flex justify-between items-center">
                                             <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -233,12 +352,16 @@ export function ProductTableRow({
                                             </span>
                                         </div>
                                     </div>
-                                    <div className="absolute -top-1.5 right-4">
-                                        <div className="w-3 h-3 bg-white border-l border-t border-gray-200 transform rotate-45"></div>
-                                    </div>
                                 </div>
-                            )}
-                    </div>
+                            }
+                        >
+                            <span className="cursor-help underline decoration-dotted decoration-gray-400 hover:decoration-gray-600">
+                                ${netShipping.toFixed(2)}
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <span>${netShipping.toFixed(2)}</span>
+                    )}
                     {product.shippingPercentage !== undefined &&
                         product.shippingPercentage !== 100 && (
                             <span className="text-xs text-gray-500">

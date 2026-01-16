@@ -565,6 +565,7 @@ export const processEbayOrder = internalAction({
             const buyerPaidShippingTotal = deliveryCost - deliveryDiscount;
 
             const feesByLineItemId: Record<string, number> = {};
+            const feesBreakdownByLineItemId: Record<string, Array<[string, number]>> = {};
             let totalOrderLevelFees = 0; // Accumulate order-level fees to distribute later
             const processedTransactionIds = new Set<string>(); // Track processed transactions to avoid double-counting
 
@@ -666,6 +667,17 @@ export const processEbayOrder = internalAction({
                                 feesByLineItemId[lineItemId] =
                                     (feesByLineItemId[lineItemId] || 0) +
                                     totalFees;
+                                
+                                // Store fee breakdown for this line item
+                                if (!feesBreakdownByLineItemId[lineItemId]) {
+                                    feesBreakdownByLineItemId[lineItemId] = [];
+                                }
+                                for (const feeDetail of feeDetails) {
+                                    feesBreakdownByLineItemId[lineItemId].push([
+                                        feeDetail.type,
+                                        feeDetail.amount,
+                                    ]);
+                                }
                             }
                         }
                     }
@@ -817,6 +829,15 @@ export const processEbayOrder = internalAction({
                         feesByLineItemId[lineItemId] =
                             (feesByLineItemId[lineItemId] || 0) +
                             orderLevelFeePerLineItem;
+                        
+                        // Add order-level fee to breakdown
+                        if (!feesBreakdownByLineItemId[lineItemId]) {
+                            feesBreakdownByLineItemId[lineItemId] = [];
+                        }
+                        feesBreakdownByLineItemId[lineItemId].push([
+                            "Order-Level Fee",
+                            orderLevelFeePerLineItem,
+                        ]);
                     }
                 }
             }
@@ -887,10 +908,14 @@ export const processEbayOrder = internalAction({
                     continue;
                 }
 
+                // Get fee breakdown for this line item
+                let feesBreakdown = feesBreakdownByLineItemId[lineItemId] || [];
+                
                 // Fallback: if no fees found, estimate at 13.25% (typical eBay final value fee)
                 // This matches eBay's standard fee structure for most categories
                 if (fees === 0) {
                     fees = price * 0.1325;
+                    feesBreakdown = [["Final Value Fee (Estimated)", fees]];
                     log.steps.push(
                         `No fees found for line item ${lineItemId}, using fallback estimate (13.25%)`
                     );
@@ -900,13 +925,24 @@ export const processEbayOrder = internalAction({
                 // This protects against double-counting or data errors
                 const maxReasonableFees = price * 0.25;
                 if (fees > maxReasonableFees) {
+                    const feeReductionRatio = maxReasonableFees / fees;
+                    fees = maxReasonableFees;
+                    // Scale down all fee breakdown amounts proportionally
+                    feesBreakdown = feesBreakdown.map(([type, amount]) => [
+                        type,
+                        amount * feeReductionRatio,
+                    ]);
                     log.steps.push(
                         `Fees for line item ${lineItemId} (${fees.toFixed(2)}) exceed 25% of price (${price.toFixed(2)}), capping at ${maxReasonableFees.toFixed(2)}`
                     );
-                    fees = maxReasonableFees;
                 }
 
                 const feesPerUnit = fees / quantity;
+                // Divide fee breakdown by quantity to get per-unit values
+                const feesBreakdownPerUnit = feesBreakdown.map(([type, amount]) => [
+                    type,
+                    amount / quantity,
+                ]);
 
                 // Calculate shipping percentage (what % of total order shipping this unit represents)
                 const shippingPercentage =
@@ -924,6 +960,7 @@ export const processEbayOrder = internalAction({
                             name: title,
                             price: pricePerUnit,
                             fees: feesPerUnit,
+                            fees_breakdown: feesBreakdownPerUnit,
                             shipping: shippingPerUnit,
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,

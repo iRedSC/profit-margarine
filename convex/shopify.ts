@@ -191,8 +191,16 @@ export const processShopifyOrder = internalAction({
                 const name = item.title || "Unknown Product";
 
                 // Calculate Shopify fees (2.9% + $0.30 per transaction, split across items)
-                const transactionFeePerUnit =
-                    (pricePerUnit * 0.029 + 0.3) / quantity;
+                const transactionFeePercentage = pricePerUnit * 0.029;
+                const transactionFeeFixed = 0.3;
+                const totalTransactionFee = transactionFeePercentage + transactionFeeFixed;
+                const transactionFeePerUnit = totalTransactionFee / quantity;
+                
+                // Create fee breakdown per unit
+                const feesBreakdownPerUnit: Array<[string, number]> = [
+                    ["Transaction Fee (2.9%)", transactionFeePercentage / quantity],
+                    ["Transaction Fee (Fixed $0.30)", transactionFeeFixed / quantity],
+                ];
 
                 // Calculate shipping percentage (what % of total order shipping this unit represents)
                 const shippingPercentage =
@@ -210,6 +218,7 @@ export const processShopifyOrder = internalAction({
                             name,
                             price: pricePerUnit,
                             fees: transactionFeePerUnit,
+                            fees_breakdown: feesBreakdownPerUnit,
                             shipping: shippingPerUnit,
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,

@@ -196,6 +196,7 @@ export const processAmazonOrder = internalAction({
 
                 // Get actual fees from financial events
                 let actualFees = 0;
+                const feesBreakdown: Array<[string, number]> = [];
 
                 if (financialEvents?.ShipmentEventList) {
                     for (const shipmentEvent of financialEvents.ShipmentEventList) {
@@ -210,13 +211,16 @@ export const processAmazonOrder = internalAction({
                                         // Sum all item fees (Amazon fees, not customer charges)
                                         if (shipmentItem.ItemFeeList) {
                                             for (const fee of shipmentItem.ItemFeeList) {
-                                                actualFees += Math.abs(
+                                                const feeAmount = Math.abs(
                                                     parseFloat(
                                                         fee.FeeAmount
                                                             ?.CurrencyAmount ||
                                                             "0"
                                                     )
                                                 );
+                                                actualFees += feeAmount;
+                                                const feeType = fee.FeeType || fee.FeeName || "Item Fee";
+                                                feesBreakdown.push([feeType, feeAmount]);
                                             }
                                         }
                                     }
@@ -226,11 +230,14 @@ export const processAmazonOrder = internalAction({
                             // Get order-level fees from OrderFeeList
                             if (shipmentEvent.OrderFeeList) {
                                 for (const fee of shipmentEvent.OrderFeeList) {
-                                    actualFees += Math.abs(
+                                    const feeAmount = Math.abs(
                                         parseFloat(
                                             fee.FeeAmount?.CurrencyAmount || "0"
                                         )
                                     );
+                                    actualFees += feeAmount;
+                                    const feeType = fee.FeeType || fee.FeeName || "Order Fee";
+                                    feesBreakdown.push([feeType, feeAmount]);
                                 }
                             }
                         }
@@ -240,11 +247,17 @@ export const processAmazonOrder = internalAction({
                 // If we didn't get financial data, fall back to estimates
                 if (actualFees === 0) {
                     actualFees = price * 0.15;
+                    feesBreakdown.push(["Amazon Fee (Estimated 15%)", actualFees]);
                 }
 
                 // Divide fees and price by quantity to get per-unit values
                 const feesPerUnit = actualFees / quantity;
                 const pricePerUnit = price / quantity;
+                // Divide fee breakdown by quantity to get per-unit values
+                const feesBreakdownPerUnit = feesBreakdown.map(([type, amount]) => [
+                    type,
+                    amount / quantity,
+                ]);
 
                 // Don't update message here - let the main sync loop handle it
 
@@ -264,6 +277,7 @@ export const processAmazonOrder = internalAction({
                             name: item.Title,
                             price: pricePerUnit,
                             fees: feesPerUnit,
+                            fees_breakdown: feesBreakdownPerUnit,
                             shipping: shippingPerUnit,
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,

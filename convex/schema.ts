@@ -23,6 +23,7 @@ const applicationTables = {
     price: v.number(),
     cost: v.optional(v.number()),
     fees: v.number(),
+    fees_breakdown: v.optional(v.array(v.array(v.union(v.string(), v.number())))),
     shipping: v.number(),
     shippingPercentage: v.optional(v.number()),
     buyerPaidShipping: v.optional(v.number()),

@@ -10,6 +10,7 @@ type Product = {
   price: number;
   cost: number | undefined;
   fees: number;
+  fees_breakdown?: Array<Array<string | number>>;
   shipping: number;
   shippingPercentage: number | undefined;
   buyerPaidShipping: number | undefined;
@@ -57,7 +58,7 @@ export function ProductTable({
 }: ProductTableProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-      <div className="overflow-x-auto overflow-y-visible">
+      <div className="overflow-x-auto overflow-y-visible" style={{ overflowY: 'visible' }}>
         <table className="w-full">
           <thead className="bg-gray-50 border-b">
             <tr>
