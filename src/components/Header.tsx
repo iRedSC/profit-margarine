@@ -145,9 +145,16 @@ export function Header() {
 
     return (
         <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm h-16 flex justify-between items-center border-b shadow-sm px-4">
-            <h2 className="text-xl font-semibold text-primary">
-                Product Profitability Analyzer
-            </h2>
+            <div className="flex items-center gap-3">
+                <img 
+                    src="/profit_finder_logo.png" 
+                    alt="Profit Finder Logo" 
+                    className="h-8 w-8"
+                />
+                <h2 className="text-xl font-semibold text-primary">
+                    Profit Finder
+                </h2>
+            </div>
             <Authenticated>
                 <div className="flex items-center gap-4">
                     {activeSyncs.length > 0 && (
