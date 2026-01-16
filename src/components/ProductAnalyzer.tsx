@@ -13,6 +13,7 @@ import {
     calculateMargin,
     getOrderUrl,
 } from "../lib/productUtils";
+import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
 
 export function ProductAnalyzer() {
     const products = useQuery(api.products.listProducts) || [];
@@ -29,10 +30,14 @@ export function ProductAnalyzer() {
     const [marketplaceFilters, setMarketplaceFilters] = useState<Set<string>>(
         new Set()
     );
-    const [dateRangeStart, setDateRangeStart] = useState<number | null>(
-        Date.now() - 24 * 60 * 60 * 1000
-    );
-    const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(Date.now());
+    const [dateRangeStart, setDateRangeStart] = useState<number | null>(() => {
+        const range = getDateRange('today');
+        return range.start;
+    });
+    const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(() => {
+        const range = getDateRange('today');
+        return range.end;
+    });
 
     const toggleMarketplaceFilter = (marketplace: string) => {
         const newFilters = new Set(marketplaceFilters);
@@ -44,21 +49,16 @@ export function ProductAnalyzer() {
         setMarketplaceFilters(newFilters);
     };
 
-    const setDateRange = (days: number | null) => {
-        if (days === null) {
-            setDateRangeStart(null);
-            setDateRangeEnd(null);
-        } else {
-            const now = Date.now();
-            setDateRangeStart(now - days * 24 * 60 * 60 * 1000);
-            setDateRangeEnd(now);
-        }
+    const setDateRange = (rangeType: DateRangeType) => {
+        const range = getDateRange(rangeType);
+        setDateRangeStart(range.start);
+        setDateRangeEnd(range.end);
     };
 
     const clearFilters = () => {
         setSkuFilter("");
         setMarketplaceFilters(new Set());
-        setDateRange(1);
+        setDateRange('today');
     };
 
     const filteredProducts = products.filter((product) => {
