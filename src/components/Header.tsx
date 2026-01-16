@@ -4,6 +4,7 @@ import { SignOutButton } from "../SignOutButton";
 import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
+import profitFinderLogo from "../../profit_finder_logo.png";
 
 export function Header() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -147,7 +148,7 @@ export function Header() {
         <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm h-16 flex justify-between items-center border-b shadow-sm px-4">
             <div className="flex items-center gap-3">
                 <img 
-                    src="/profit_finder_logo.png" 
+                    src={profitFinderLogo} 
                     alt="Profit Finder Logo" 
                     className="h-8 w-8"
                 />
