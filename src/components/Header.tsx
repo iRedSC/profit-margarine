@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import { Button } from "./ui/button";
 import { Loader2 } from "lucide-react";
 import { SidebarTrigger } from "./ui/sidebar";
+import { Progress } from "./ui/progress";
 
 export function Header() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -153,24 +154,41 @@ export function Header() {
             </div>
             <Authenticated>
                 <div className="flex items-center gap-4">
-                    {activeSyncs.length > 0 && (
-                        <div className="text-sm text-muted-foreground min-w-[300px] text-right">
-                            {activeSyncs.map((sync) => {
-                                const marketplaceName = sync.marketplace.charAt(0).toUpperCase() + sync.marketplace.slice(1);
-                                const progress = sync.total > 0 
-                                    ? `${sync.complete}/${sync.total}` 
-                                    : sync.message || "Starting...";
-                                return (
-                                    <div key={sync._id} className="text-primary font-medium">
-                                        {marketplaceName}: {progress}
-                                        {sync.message && sync.total === 0 && (
-                                            <span className="text-muted-foreground ml-2">({sync.message})</span>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
+                    {activeSyncs.length > 0 && (() => {
+                        const totalComplete = activeSyncs.reduce((sum, sync) => sum + sync.complete, 0);
+                        const totalItems = activeSyncs.reduce((sum, sync) => sum + sync.total, 0);
+                        const marketplaceNames = activeSyncs.map(s => 
+                            s.marketplace.charAt(0).toUpperCase() + s.marketplace.slice(1)
+                        ).join(", ");
+                        const primarySync = activeSyncs[0];
+                        
+                        const progressValue = totalItems === 0 
+                            ? 50 // Indeterminate progress when initializing
+                            : Math.min(100, (totalComplete / totalItems) * 100);
+                        
+                        const statusMessage = activeSyncs.length === 1
+                            ? (primarySync.message || `Syncing ${marketplaceNames}...`)
+                            : `Syncing ${marketplaceNames}...`;
+                        
+                        const progressText = totalItems === 0
+                            ? "Initializing..."
+                            : `${totalComplete} of ${totalItems} items processed`;
+                        
+                        return (
+                            <div className="flex flex-col gap-2 min-w-[300px] max-w-[400px]">
+                                <div className="text-sm font-medium text-foreground">
+                                    {statusMessage}
+                                </div>
+                                <Progress 
+                                    value={progressValue}
+                                    className="h-2"
+                                />
+                                <div className="text-xs text-muted-foreground text-right">
+                                    {progressText}
+                                </div>
+                            </div>
+                        );
+                    })()}
                     <div className="relative">
                         <Button
                             onClick={() => {
