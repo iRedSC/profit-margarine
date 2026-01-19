@@ -117,10 +117,10 @@ export function ProductTableRow({
                 }`}
                 onContextMenu={handleContextMenu}
             >
-            <td className="p-4 align-middle font-medium">
+            <td className="px-3 py-2 align-middle text-sm font-medium">
                 {product.sku}
             </td>
-            <td className="p-4 align-middle">
+            <td className="px-3 py-2 align-middle text-sm">
                 {product.name && product.name.length > 30 ? (
                     <Tooltip
                         content={
@@ -137,7 +137,7 @@ export function ProductTableRow({
                     <span>{truncatedName}</span>
                 )}
             </td>
-            <td className="p-4 align-middle">
+            <td className="px-3 py-2 align-middle text-sm">
                 {orderUrl ? (
                     <a
                         href={orderUrl}
@@ -154,17 +154,17 @@ export function ProductTableRow({
                     </span>
                 )}
             </td>
-            <td className="p-4 align-middle text-right">
+            <td className="px-3 py-2 align-middle text-right text-sm">
                 ${product.price.toFixed(2)}
             </td>
-            <td className="p-4 align-middle text-right">
+            <td className="px-3 py-2 align-middle text-right text-sm">
                 {isEditing ? (
                     <input
                         type="number"
                         step="1"
                         value={editingCostValue}
                         onChange={(e) => setEditingCostValue(e.target.value)}
-                        className="flex h-9 w-24 rounded-md border border-input bg-transparent px-2 py-1 text-right text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex h-7 w-24 rounded-md border border-input bg-transparent px-2 py-0.5 text-right text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                         autoFocus
                         onFocus={(e) => e.target.select()}
                         onKeyDown={(e) => {
@@ -191,7 +191,7 @@ export function ProductTableRow({
                     </button>
                 )}
             </td>
-            <td className="p-4 align-middle text-right">
+            <td className="px-3 py-2 align-middle text-right text-sm">
                 {product.fees_breakdown &&
                     product.fees_breakdown.length > 0 &&
                     product.fees_breakdown.some(
@@ -319,7 +319,7 @@ export function ProductTableRow({
                     <span>${product.fees.toFixed(2)}</span>
                 )}
             </td>
-            <td className="p-4 align-middle text-right">
+            <td className="px-3 py-2 align-middle text-right text-sm">
                 <div className="flex flex-col items-end">
                     {product.buyerPaidShipping !== undefined &&
                     product.buyerPaidShipping !== 0 ? (
@@ -374,16 +374,16 @@ export function ProductTableRow({
                 </div>
             </td>
             <td
-                className={`p-4 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
+                className={`px-3 py-2 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
             >
                 ${profit.toFixed(2)}
             </td>
             <td
-                className={`p-4 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
+                className={`px-3 py-2 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
             >
                 {margin.toFixed(1)}%
             </td>
-            <td className="p-4 align-middle text-center">
+            <td className="px-3 py-2 align-middle text-center text-sm">
                 {!hasCost ? (
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
                         ? No cost
@@ -402,7 +402,7 @@ export function ProductTableRow({
                     </span>
                 )}
             </td>
-            <td className="p-4 align-middle text-center">
+            <td className="px-3 py-2 align-middle text-center text-sm">
                 {product.orderDate ? (
                     <>
                         <div>
@@ -416,7 +416,7 @@ export function ProductTableRow({
                     <div className="text-muted-foreground">-</div>
                 )}
             </td>
-            <td className="p-4 align-middle text-center">
+            <td className="px-3 py-2 align-middle text-center text-sm">
                 {product.fulfillmentDate ? (
                     <>
                         <div>

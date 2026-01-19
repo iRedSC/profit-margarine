@@ -76,10 +76,12 @@ export function ProductAnalyzer() {
             return false;
         }
 
-        if (dateRangeStart !== null && product.orderDate < dateRangeStart) {
+        // Use fulfillmentDate with fallback to orderDate for filtering
+        const filterDate = product.fulfillmentDate ?? product.orderDate;
+        if (dateRangeStart !== null && filterDate < dateRangeStart) {
             return false;
         }
-        if (dateRangeEnd !== null && product.orderDate > dateRangeEnd) {
+        if (dateRangeEnd !== null && filterDate > dateRangeEnd) {
             return false;
         }
 

@@ -64,68 +64,68 @@ export function ProductTable({
           <thead>
             <tr>
               <th 
-                className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-left align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("sku")}
               >
                 SKU <SortIcon field="sku" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-left align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("name")}
               >
                 Name <SortIcon field="name" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-left align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("marketplace")}
               >
                 Marketplace <SortIcon field="marketplace" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-right align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("price")}
               >
                 Price <SortIcon field="price" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-right align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("cost")}
               >
                 Cost <SortIcon field="cost" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-right align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("fees")}
               >
                 Fees <SortIcon field="fees" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-right align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("shipping")}
               >
                 Shipping <SortIcon field="shipping" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-right align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("profit")}
               >
                 Profit <SortIcon field="profit" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-right align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("margin")}
               >
                 Margin <SortIcon field="margin" sortField={sortField} sortDirection={sortDirection} />
               </th>
-              <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Status</th>
+              <th className="h-9 px-3 text-center align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Status</th>
               <th 
-                className="h-12 px-4 text-center align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-center align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("orderDate")}
               >
                 Order Date <SortIcon field="orderDate" sortField={sortField} sortDirection={sortDirection} />
               </th>
               <th 
-                className="h-12 px-4 text-center align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                className="h-9 px-3 text-center align-middle text-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort("fulfillmentDate")}
               >
                 Fulfillment Date <SortIcon field="fulfillmentDate" sortField={sortField} sortDirection={sortDirection} />
@@ -135,7 +135,7 @@ export function ProductTable({
           <tbody className="[&_tr:last-child]:border-0">
             {products.length === 0 ? (
               <tr>
-                <td colSpan={12} className="h-24 px-4 text-center text-muted-foreground">
+                <td colSpan={12} className="h-20 px-3 py-3 text-center text-sm text-muted-foreground">
                   {allProducts.length === 0 
                     ? "No products yet. Sync your orders to get started!"
                     : "No products match your filters. Try adjusting your search criteria."}
