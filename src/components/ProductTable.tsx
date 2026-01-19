@@ -57,8 +57,8 @@ export function ProductTable({
   onResyncOrder,
 }: ProductTableProps) {
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
-      <div className="overflow-x-auto overflow-y-visible" style={{ overflowY: 'visible' }}>
+    <div className="rounded-lg border bg-card">
+      <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr>

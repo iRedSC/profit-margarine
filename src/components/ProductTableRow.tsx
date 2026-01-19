@@ -118,27 +118,21 @@ export function ProductTableRow({
                 {product.sku}
             </td>
             <td className="p-4 align-middle">
-                <div className="group relative">
-                    <span
-                        className={
-                            product.name && product.name.length > 30
-                                ? "cursor-help"
-                                : ""
-                        }
-                    >
-                        {truncatedName}
-                    </span>
-                    {product.name && product.name.length > 30 && (
-                        <div className="absolute left-0 top-full mt-2 hidden group-hover:block z-[100] w-max max-w-md bg-popover border rounded-lg shadow-lg py-3 px-4">
-                            <div className="text-sm text-popover-foreground whitespace-normal break-words">
+                {product.name && product.name.length > 30 ? (
+                    <Tooltip
+                        content={
+                            <div className="text-sm text-popover-foreground whitespace-normal break-words max-w-md">
                                 {product.name}
                             </div>
-                            <div className="absolute -top-1.5 left-4">
-                                <div className="w-3 h-3 bg-popover border-l border-t border-border transform rotate-45"></div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                        }
+                    >
+                        <span className="cursor-help">
+                            {truncatedName}
+                        </span>
+                    </Tooltip>
+                ) : (
+                    <span>{truncatedName}</span>
+                )}
             </td>
             <td className="p-4 align-middle">
                 {orderUrl ? (
