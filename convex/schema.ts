@@ -28,6 +28,7 @@ const applicationTables = {
     shippingPercentage: v.optional(v.number()),
     buyerPaidShipping: v.optional(v.number()),
     orderDate: v.number(),
+    fulfillmentDate: v.optional(v.number()),
     userId: v.id("users"),
     orderId: v.optional(v.string()),
     OrderId: v.optional(v.string()),

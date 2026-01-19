@@ -1,4 +1,4 @@
-export type SortField = "sku" | "name" | "marketplace" | "price" | "cost" | "fees" | "shipping" | "profit" | "margin" | "orderDate";
+export type SortField = "sku" | "name" | "marketplace" | "price" | "cost" | "fees" | "shipping" | "profit" | "margin" | "orderDate" | "fulfillmentDate";
 export type SortDirection = "asc" | "desc";
 
 export function calculateProfit(price: number, cost: number | undefined, fees: number, shipping: number): number {

@@ -85,6 +85,10 @@ export const processShopifyOrder = internalAction({
                 channelName
               }
             }
+            fulfillments(first: 10) {
+              createdAt
+              status
+            }
             lineItems(first: 100) {
               edges {
                 node {
@@ -138,6 +142,24 @@ export const processShopifyOrder = internalAction({
             }
 
             const orderTimestamp = new Date(order.createdAt).getTime();
+
+            // Extract fulfillment date from fulfillments
+            let fulfillmentTimestamp: number | undefined = undefined;
+            if (order.fulfillments && Array.isArray(order.fulfillments) && order.fulfillments.length > 0) {
+                // Get the latest fulfillment's createdAt
+                const latestFulfillment = order.fulfillments.reduce((latest: any, current: any) => {
+                    if (!latest || !latest.createdAt) return current;
+                    if (!current.createdAt) return latest;
+                    return new Date(current.createdAt) > new Date(latest.createdAt) 
+                        ? current 
+                        : latest;
+                }, null);
+                
+                if (latestFulfillment?.createdAt) {
+                    fulfillmentTimestamp = new Date(latestFulfillment.createdAt).getTime();
+                    log.steps.push(`Extracted fulfillment date: ${latestFulfillment.createdAt}`);
+                }
+            }
 
             // Check if order already exists (by orderId and orderDate)
             const orderExists = await ctx.runQuery(
@@ -223,6 +245,7 @@ export const processShopifyOrder = internalAction({
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,
                             orderTimestamp,
+                            fulfillmentTimestamp,
                             orderId: orderId,
                             OrderId: orderId || "",
                             updateExisting: args.updateExisting ?? false,

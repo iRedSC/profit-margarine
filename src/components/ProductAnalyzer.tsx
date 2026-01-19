@@ -23,7 +23,7 @@ export function ProductAnalyzer() {
     const resyncOrder = useMutation(api.products.resyncOrder);
     const shopDomain = useQuery(api.shopifyMutations.getShopDomain);
 
-    const [sortField, setSortField] = useState<SortField>("orderDate");
+    const [sortField, setSortField] = useState<SortField>("fulfillmentDate");
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
     const [skuFilter, setSkuFilter] = useState("");
@@ -122,6 +122,10 @@ export function ProductAnalyzer() {
             // Sort by net shipping cost
             aValue = aNetShipping;
             bValue = bNetShipping;
+        } else if (sortField === "fulfillmentDate") {
+            // Use fulfillmentDate with fallback to orderDate
+            aValue = a.fulfillmentDate ?? a.orderDate;
+            bValue = b.fulfillmentDate ?? b.orderDate;
         } else {
             aValue = a[sortField];
             bValue = b[sortField];

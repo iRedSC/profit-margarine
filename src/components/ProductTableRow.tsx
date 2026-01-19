@@ -21,6 +21,7 @@ type Product = {
     shippingPercentage: number | undefined;
     buyerPaidShipping: number | undefined;
     orderDate: number;
+    fulfillmentDate: number | undefined;
     OrderId: string | undefined;
 };
 
@@ -409,6 +410,20 @@ export function ProductTableRow({
                         </div>
                         <div className="text-xs text-muted-foreground">
                             {new Date(product.orderDate).toLocaleTimeString()}
+                        </div>
+                    </>
+                ) : (
+                    <div className="text-muted-foreground">-</div>
+                )}
+            </td>
+            <td className="p-4 align-middle text-center">
+                {product.fulfillmentDate ? (
+                    <>
+                        <div>
+                            {new Date(product.fulfillmentDate).toLocaleDateString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            {new Date(product.fulfillmentDate).toLocaleTimeString()}
                         </div>
                     </>
                 ) : (

@@ -551,6 +551,46 @@ export const processEbayOrder = internalAction({
             const lineItems = orderData.lineItems || [];
             log.steps.push(`Fetched order with ${lineItems.length} line items`);
 
+            // Fetch shipping fulfillments to get fulfillment date
+            let fulfillmentTimestamp: number | undefined = undefined;
+            try {
+                const fulfillmentUrl = `${baseUrl}/sell/fulfillment/v1/order/${args.orderId}/shipping_fulfillment`;
+                const fulfillmentResponse = await fetch(fulfillmentUrl, {
+                    headers: {
+                        Authorization: `Bearer ${args.accessToken}`,
+                        "Content-Type": "application/json",
+                    },
+                });
+
+                if (fulfillmentResponse.ok) {
+                    const fulfillmentData = await fulfillmentResponse.json();
+                    const fulfillments = fulfillmentData.fulfillments || [];
+                    if (fulfillments.length > 0) {
+                        // Get the latest fulfillment's shippedDate
+                        const latestFulfillment = fulfillments.reduce((latest: any, current: any) => {
+                            if (!latest || !latest.shippedDate) return current;
+                            if (!current.shippedDate) return latest;
+                            return new Date(current.shippedDate) > new Date(latest.shippedDate) 
+                                ? current 
+                                : latest;
+                        }, null);
+                        
+                        if (latestFulfillment?.shippedDate) {
+                            fulfillmentTimestamp = new Date(latestFulfillment.shippedDate).getTime();
+                            log.steps.push(`Fetched fulfillment date: ${latestFulfillment.shippedDate}`);
+                        }
+                    }
+                } else {
+                    log.steps.push(`Could not fetch fulfillments: ${fulfillmentResponse.status}`);
+                }
+            } catch (error: any) {
+                log.errors.push({
+                    step: "fetch_fulfillment_date",
+                    error: error.message || String(error),
+                });
+                log.steps.push(`Error fetching fulfillment date: ${error.message}`);
+            }
+
             // Log all transactions for this order for debugging (after helper function is defined)
             // Note: This will be logged after the helper function is created below
 
@@ -965,6 +1005,7 @@ export const processEbayOrder = internalAction({
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,
                             orderTimestamp,
+                            fulfillmentTimestamp,
                             orderId: args.orderId,
                             OrderId: args.orderId,
                             updateExisting: args.updateExisting ?? false,

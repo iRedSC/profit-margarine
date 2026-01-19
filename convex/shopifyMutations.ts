@@ -39,6 +39,7 @@ export const upsertProductFromShopify = internalMutation({
         shippingPercentage: v.optional(v.number()),
         buyerPaidShipping: v.optional(v.number()),
         orderTimestamp: v.number(),
+        fulfillmentTimestamp: v.optional(v.number()),
         orderId: v.string(),
         OrderId: v.string(),
         updateExisting: v.optional(v.boolean()),
@@ -98,6 +99,7 @@ export const upsertProductFromShopify = internalMutation({
                     shipping: args.shipping,
                     shippingPercentage: args.shippingPercentage,
                     buyerPaidShipping: args.buyerPaidShipping,
+                    fulfillmentDate: args.fulfillmentTimestamp,
                     OrderId: args.OrderId,
                     name: args.name,
                 });
@@ -117,6 +119,7 @@ export const upsertProductFromShopify = internalMutation({
             shippingPercentage: args.shippingPercentage,
             buyerPaidShipping: args.buyerPaidShipping,
             orderDate: args.orderTimestamp,
+            fulfillmentDate: args.fulfillmentTimestamp,
             userId: args.userId,
             orderId: args.orderId,
             OrderId: args.OrderId,

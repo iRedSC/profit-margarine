@@ -170,6 +170,30 @@ export const processAmazonOrder = internalAction({
             }
             log.steps.push("Calculated shipping costs");
 
+            // Extract fulfillment date from ShipmentEventList
+            let fulfillmentTimestamp: number | undefined = undefined;
+            if (financialEvents?.ShipmentEventList) {
+                for (const shipmentEvent of financialEvents.ShipmentEventList) {
+                    if (shipmentEvent.AmazonOrderId === args.orderId) {
+                        // Try to get PostedDate or ShipmentDate from the shipment event
+                        const postedDate = shipmentEvent.PostedDate;
+                        const shipmentDate = (shipmentEvent as any).ShipmentDate;
+                        const dateToUse = postedDate || shipmentDate;
+                        
+                        if (dateToUse) {
+                            const parsedDate = new Date(dateToUse).getTime();
+                            // Use the earliest shipment date if multiple shipments exist
+                            if (!fulfillmentTimestamp || parsedDate < fulfillmentTimestamp) {
+                                fulfillmentTimestamp = parsedDate;
+                            }
+                        }
+                    }
+                }
+                if (fulfillmentTimestamp) {
+                    log.steps.push(`Extracted fulfillment date from shipment events`);
+                }
+            }
+
             // Calculate total quantity across all items
             const totalQuantity = orderItems.reduce(
                 (sum: number, item: any) => {
@@ -282,6 +306,7 @@ export const processAmazonOrder = internalAction({
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,
                             orderTimestamp,
+                            fulfillmentTimestamp,
                             orderId: args.orderId,
                             OrderId: args.orderId,
                             updateExisting: args.updateExisting ?? false,

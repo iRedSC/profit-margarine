@@ -15,6 +15,7 @@ type Product = {
   shippingPercentage: number | undefined;
   buyerPaidShipping: number | undefined;
   orderDate: number;
+  fulfillmentDate: number | undefined;
   OrderId: string | undefined;
 };
 
@@ -123,12 +124,18 @@ export function ProductTable({
               >
                 Order Date <SortIcon field="orderDate" sortField={sortField} sortDirection={sortDirection} />
               </th>
+              <th 
+                className="h-12 px-4 text-center align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 cursor-pointer hover:bg-muted/50"
+                onClick={() => onSort("fulfillmentDate")}
+              >
+                Fulfillment Date <SortIcon field="fulfillmentDate" sortField={sortField} sortDirection={sortDirection} />
+              </th>
             </tr>
           </thead>
           <tbody className="[&_tr:last-child]:border-0">
             {products.length === 0 ? (
               <tr>
-                <td colSpan={11} className="h-24 px-4 text-center text-muted-foreground">
+                <td colSpan={12} className="h-24 px-4 text-center text-muted-foreground">
                   {allProducts.length === 0 
                     ? "No products yet. Sync your orders to get started!"
                     : "No products match your filters. Try adjusting your search criteria."}
