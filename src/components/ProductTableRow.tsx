@@ -107,6 +107,8 @@ export function ProductTableRow({
             <tr
                 className={`border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted ${
                     !hasCost 
+                        ? "bg-muted/30" 
+                        : isDubious 
                         ? "bg-warning/5" 
                         : !isProfitable 
                         ? "bg-destructive/5" 

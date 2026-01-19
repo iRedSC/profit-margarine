@@ -31,11 +31,11 @@ export function ProductAnalyzer() {
         new Set()
     );
     const [dateRangeStart, setDateRangeStart] = useState<number | null>(() => {
-        const range = getDateRange('today');
+        const range = getDateRange("today");
         return range.start;
     });
     const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(() => {
-        const range = getDateRange('today');
+        const range = getDateRange("today");
         return range.end;
     });
 
@@ -58,7 +58,7 @@ export function ProductAnalyzer() {
     const clearFilters = () => {
         setSkuFilter("");
         setMarketplaceFilters(new Set());
-        setDateRange('today');
+        setDateRange("today");
     };
 
     const filteredProducts = products.filter((product) => {
