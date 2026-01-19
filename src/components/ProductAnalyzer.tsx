@@ -86,7 +86,13 @@ export function ProductAnalyzer() {
         return true;
     });
 
-    const sortedProducts = [...filteredProducts].sort((a, b) => {
+    // Filter out products with no cost when sorting by profit or margin
+    const productsToSort =
+        sortField === "profit" || sortField === "margin"
+            ? filteredProducts.filter((product) => product.cost !== undefined)
+            : filteredProducts;
+
+    const sortedProducts = [...productsToSort].sort((a, b) => {
         let aValue: any;
         let bValue: any;
 
@@ -106,6 +112,12 @@ export function ProductAnalyzer() {
         } else if (sortField === "margin") {
             aValue = calculateMargin(a.price, a.cost, a.fees, aNetShipping);
             bValue = calculateMargin(b.price, b.cost, b.fees, bNetShipping);
+        } else if (sortField === "cost") {
+            // Treat undefined cost as lowest cost (negative infinity for comparison)
+            const aCost = a.cost !== undefined ? a.cost : -Infinity;
+            const bCost = b.cost !== undefined ? b.cost : -Infinity;
+            aValue = aCost;
+            bValue = bCost;
         } else if (sortField === "shipping") {
             // Sort by net shipping cost
             aValue = aNetShipping;
