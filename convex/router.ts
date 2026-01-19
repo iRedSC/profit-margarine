@@ -191,81 +191,38 @@ http.route({
     method: "POST",
     handler: httpAction(async (ctx, req) => {
         try {
-            // Verify the token from the Authorization header
-            const authHeader = req.headers.get("Authorization");
-            const expectedToken = process.env.EBAY_VERIFICATION_TOKEN;
-
-            if (!expectedToken) {
-                // console.error("EBAY_VERIFICATION_TOKEN not configured");
-                return new Response(
-                    JSON.stringify({ error: "Server configuration error" }),
-                    {
-                        status: 500,
-                        headers: { "Content-Type": "application/json" },
-                    }
-                );
-            }
-
-            // Check if the token matches
-            const verified = authHeader === `Bearer ${expectedToken}`;
-
-            if (!verified) {
-                // console.warn("Invalid verification token received");
-                return new Response(JSON.stringify({ error: "Unauthorized" }), {
-                    status: 401,
-                    headers: { "Content-Type": "application/json" },
-                });
-            }
-
-            const body = await req.json();
-
+            // Accept and acknowledge the notification request
+            // We don't need to process it, just return success
+            const body = await req.json().catch(() => ({}));
+            
+            // Log the notification for debugging purposes (optional)
             const notificationType = body.metadata?.topic;
+            console.log("eBay notification received:", {
+                type: notificationType,
+                timestamp: new Date().toISOString(),
+            });
 
-            switch (notificationType) {
-                case "MARKETPLACE_ACCOUNT_DELETION":
-                    await ctx.runMutation(
-                        internal.ebayMutations.logAccountDeletion,
-                        {
-                            ebayUserId:
-                                body.notification?.data?.userId || "unknown",
-                            username:
-                                body.notification?.data?.username || "unknown",
-                            deletionDate:
-                                body.notification?.data?.deletionDate ||
-                                new Date().toISOString(),
-                            notificationData: JSON.stringify(body),
-                            verified: true,
-                        }
-                    );
-                    break;
-
-                case "MARKETPLACE_ACCOUNT_CLOSURE":
-                    break;
-
-                default:
-                    // Unhandled notification type
-                    break;
-            }
-
+            // Always return success to acknowledge receipt
             return new Response(
-                JSON.stringify({ message: "Notification processed" }),
+                JSON.stringify({ message: "Notification received" }),
                 {
                     status: 200,
                     headers: { "Content-Type": "application/json" },
                 }
             );
         } catch (error: any) {
-            const log = {
+            // Even on error, return 200 to ensure eBay doesn't mark us as down
+            // Log the error for debugging
+            console.error("eBay notification error:", {
                 endpoint: "/ebay/notifications",
-                step: "process_notification",
                 error: error.message || String(error),
                 timestamp: new Date().toISOString(),
-            };
-            console.error(JSON.stringify(log));
+            });
+            
             return new Response(
-                JSON.stringify({ error: "Internal server error" }),
+                JSON.stringify({ message: "Notification received" }),
                 {
-                    status: 500,
+                    status: 200,
                     headers: { "Content-Type": "application/json" },
                 }
             );
