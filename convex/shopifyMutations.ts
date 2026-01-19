@@ -88,21 +88,23 @@ export const upsertProductFromShopify = internalMutation({
                 .collect();
 
             if (existingMarketplaceProducts.length > 0) {
-                // Update the first matching marketplace product
-                const existingMp = existingMarketplaceProducts[0];
-                await ctx.db.patch(existingMp._id, {
-                    productId,
-                    price: args.price,
-                    cost: existingProduct?.cost,
-                    fees: args.fees,
-                    fees_breakdown: args.fees_breakdown,
-                    shipping: args.shipping,
-                    shippingPercentage: args.shippingPercentage,
-                    buyerPaidShipping: args.buyerPaidShipping,
-                    fulfillmentDate: args.fulfillmentTimestamp,
-                    OrderId: args.OrderId,
-                    name: args.name,
-                });
+                // Update all matching marketplace products (not just the first one)
+                // This ensures all items/units in an order get their fulfillment dates updated
+                for (const existingMp of existingMarketplaceProducts) {
+                    await ctx.db.patch(existingMp._id, {
+                        productId,
+                        price: args.price,
+                        cost: existingProduct?.cost,
+                        fees: args.fees,
+                        fees_breakdown: args.fees_breakdown,
+                        shipping: args.shipping,
+                        shippingPercentage: args.shippingPercentage,
+                        buyerPaidShipping: args.buyerPaidShipping,
+                        fulfillmentDate: args.fulfillmentTimestamp,
+                        OrderId: args.OrderId,
+                        name: args.name,
+                    });
+                }
                 return;
             }
         }

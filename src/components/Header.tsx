@@ -31,6 +31,8 @@ export function Header() {
     const syncShopifyOrdersOneYear = useMutation(
         api.products.syncShopifyOrdersOneYear
     );
+    const resyncAllOrders = useMutation(api.products.resyncAllOrders);
+    const cancelAllActiveSyncs = useMutation(api.products.cancelAllActiveSyncs);
     const importProductCosts = useMutation(api.importCosts.importProductCosts);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -49,14 +51,17 @@ export function Header() {
         setIsSyncing(true);
         setContextMenu(null);
         try {
-            await syncAmazonOrders({ updateExisting });
-            await syncEbayOrders({ updateExisting });
-            await syncShopifyOrders({ updateExisting });
-            toast.success(
-                updateExisting
-                    ? "Sync & update started for all marketplaces!"
-                    : "Sync started for all marketplaces!"
-            );
+            if (updateExisting) {
+                // When updating, resync all existing orders from marketplace products
+                await resyncAllOrders({});
+                toast.success("Resyncing all orders from existing marketplace products!");
+            } else {
+                // Normal sync - fetch new orders from APIs
+                await syncAmazonOrders({ updateExisting });
+                await syncEbayOrders({ updateExisting });
+                await syncShopifyOrders({ updateExisting });
+                toast.success("Sync started for all marketplaces!");
+            }
         } catch (error: any) {
             toast.error(`Sync failed: ${error.message || "Unknown error"}`);
         } finally {
@@ -191,13 +196,29 @@ export function Header() {
                     })()}
                     <div className="relative">
                         <Button
-                            onClick={() => {
-                                void handleSyncAll(false);
+                            onClick={async () => {
+                                if (activeSyncs.length > 0) {
+                                    // Cancel all active syncs
+                                    try {
+                                        await cancelAllActiveSyncs({});
+                                        toast.success("Sync canceled");
+                                    } catch (error: any) {
+                                        toast.error(`Failed to cancel sync: ${error.message || "Unknown error"}`);
+                                    }
+                                } else {
+                                    // Start sync
+                                    void handleSyncAll(false);
+                                }
                             }}
-                            onContextMenu={handleContextMenu}
-                            disabled={isSyncing}
+                            onContextMenu={activeSyncs.length === 0 ? handleContextMenu : undefined}
+                            disabled={isSyncing && activeSyncs.length === 0}
+                            variant={activeSyncs.length > 0 ? "destructive" : "default"}
                         >
-                            {isSyncing ? (
+                            {activeSyncs.length > 0 ? (
+                                <>
+                                    Cancel Sync
+                                </>
+                            ) : isSyncing ? (
                                 <>
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Syncing...

@@ -549,6 +549,35 @@ export const cancelActiveSyncsForMarketplace = internalMutation({
     },
 });
 
+export const cancelAllActiveSyncs = mutation({
+    args: {},
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
+
+        // Get all active syncs for the user
+        const activeSyncs = await ctx.db
+            .query("syncs")
+            .withIndex("by_user_and_status", (q) =>
+                q.eq("userId", userId).eq("status", "active")
+            )
+            .collect();
+
+        // Cancel all active syncs
+        for (const sync of activeSyncs) {
+            await ctx.db.patch(sync._id, {
+                status: "canceled",
+                message: SyncMessages.canceled("user requested"),
+                finishedAt: Date.now(),
+            });
+        }
+
+        return { canceled: activeSyncs.length };
+    },
+});
+
 export const upsertProductFromAmazon = internalMutation({
     args: {
         userId: v.id("users"),
@@ -610,21 +639,23 @@ export const upsertProductFromAmazon = internalMutation({
                 .collect();
 
             if (existingMarketplaceProducts.length > 0) {
-                // Update the first matching marketplace product
-                const existingMp = existingMarketplaceProducts[0];
-                await ctx.db.patch(existingMp._id, {
-                    productId,
-                    price: args.price,
-                    cost: existingProduct?.cost,
-                    fees: args.fees,
-                    fees_breakdown: args.fees_breakdown,
-                    shipping: args.shipping,
-                    shippingPercentage: args.shippingPercentage,
-                    buyerPaidShipping: args.buyerPaidShipping,
-                    fulfillmentDate: args.fulfillmentTimestamp,
-                    OrderId: args.OrderId,
-                    name: args.name,
-                });
+                // Update all matching marketplace products (not just the first one)
+                // This ensures all items/units in an order get their fulfillment dates updated
+                for (const existingMp of existingMarketplaceProducts) {
+                    await ctx.db.patch(existingMp._id, {
+                        productId,
+                        price: args.price,
+                        cost: existingProduct?.cost,
+                        fees: args.fees,
+                        fees_breakdown: args.fees_breakdown,
+                        shipping: args.shipping,
+                        shippingPercentage: args.shippingPercentage,
+                        buyerPaidShipping: args.buyerPaidShipping,
+                        fulfillmentDate: args.fulfillmentTimestamp,
+                        OrderId: args.OrderId,
+                        name: args.name,
+                    });
+                }
                 return;
             }
         }
@@ -753,11 +784,76 @@ export const resyncOrder = mutation({
     },
 });
 
+export const resyncAllOrders = mutation({
+    args: {},
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
+
+        // Create a sync record for tracking progress
+        // Use "amazon" as the marketplace type but with a custom message
+        const syncId = await ctx.db.insert("syncs", {
+            userId,
+            marketplace: "amazon", // Using "amazon" as placeholder, message will indicate it's for all
+            status: "active",
+            total: 0,
+            complete: 0,
+            message: "Resyncing all orders from existing marketplace products...",
+            startedAt: Date.now(),
+        });
+
+        // Schedule the resync action
+        await ctx.scheduler.runAfter(0, internal.productResync.resyncAllOrdersAction, {
+            userId,
+            syncId,
+        });
+
+        return { message: "Resync all orders started" };
+    },
+});
+
 export const getMarketplaceProduct = internalQuery({
     args: {
         marketplaceProductId: v.id("marketplaceProducts"),
     },
     handler: async (ctx, args) => {
         return await ctx.db.get(args.marketplaceProductId);
+    },
+});
+
+export const getAllMarketplaceProductsWithOrders = internalQuery({
+    args: {
+        userId: v.id("users"),
+    },
+    handler: async (ctx, args) => {
+        const allMarketplaceProducts = await ctx.db
+            .query("marketplaceProducts")
+            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .collect();
+
+        // Group by marketplace and orderId, keeping track of one marketplaceProductId per order
+        const orderMap = new Map<string, {
+            marketplaceProductId: Id<"marketplaceProducts">;
+            marketplace: "Ebay" | "Amazon" | "Shopify" | "TikTok";
+            orderId: string;
+        }>();
+
+        for (const mp of allMarketplaceProducts) {
+            const orderId = mp.orderId || mp.OrderId;
+            if (!orderId) continue;
+
+            const key = `${mp.marketplace}:${orderId}`;
+            if (!orderMap.has(key)) {
+                orderMap.set(key, {
+                    marketplaceProductId: mp._id,
+                    marketplace: mp.marketplace,
+                    orderId: orderId,
+                });
+            }
+        }
+
+        return Array.from(orderMap.values());
     },
 });
