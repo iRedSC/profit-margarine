@@ -39,7 +39,7 @@ export function AppSidebar({ selectedView, onViewChange }: AppSidebarProps) {
           <img 
             src={profitFinderLogo} 
             alt="Profit Finder Logo" 
-            className="h-6 w-6"
+            className="h-6 w-6 flex-shrink-0 object-contain"
           />
           <span className="font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             Profit Finder
