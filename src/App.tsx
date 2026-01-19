@@ -1,11 +1,14 @@
+import { useState, useEffect } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Toaster, toast } from "sonner";
-import { useEffect } from "react";
 import { Header } from "./components/Header";
 import { Content } from "./components/Content";
+import { AppSidebar } from "./components/Sidebar";
+import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
 
 export default function App() {
+    const [selectedView, setSelectedView] = useState("products");
     const completeEbayOAuth = useMutation(api.ebayMutations.completeOAuthFlow);
     const completeTiktokOAuth = useMutation(api.tiktokMutations.completeOAuthFlow);
 
@@ -70,12 +73,18 @@ export default function App() {
     }, [completeEbayOAuth, completeTiktokOAuth]);
 
     return (
-        <div className="min-h-screen flex flex-col bg-gray-50">
-            <Header />
-            <main className="flex-1 p-8">
-                <Content />
-            </main>
+        <SidebarProvider>
+            <AppSidebar 
+                selectedView={selectedView} 
+                onViewChange={setSelectedView}
+            />
+            <SidebarInset>
+                <Header />
+                <div className="flex-1 overflow-y-auto">
+                    <Content selectedView={selectedView} />
+                </div>
+            </SidebarInset>
             <Toaster />
-        </div>
+        </SidebarProvider>
     );
 }

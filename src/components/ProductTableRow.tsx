@@ -105,13 +105,19 @@ export function ProductTableRow({
     return (
         <>
             <tr
-                className="hover:bg-gray-50"
+                className={`border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted ${
+                    !hasCost 
+                        ? "bg-warning/5" 
+                        : !isProfitable 
+                        ? "bg-destructive/5" 
+                        : ""
+                }`}
                 onContextMenu={handleContextMenu}
             >
-            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+            <td className="p-4 align-middle font-medium">
                 {product.sku}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+            <td className="p-4 align-middle">
                 <div className="group relative">
                     <span
                         className={
@@ -123,45 +129,45 @@ export function ProductTableRow({
                         {truncatedName}
                     </span>
                     {product.name && product.name.length > 30 && (
-                        <div className="absolute left-0 top-full mt-2 hidden group-hover:block z-[100] w-max max-w-md bg-white border border-gray-200 rounded-lg shadow-lg py-3 px-4">
-                            <div className="text-sm text-gray-900 whitespace-normal break-words">
+                        <div className="absolute left-0 top-full mt-2 hidden group-hover:block z-[100] w-max max-w-md bg-popover border rounded-lg shadow-lg py-3 px-4">
+                            <div className="text-sm text-popover-foreground whitespace-normal break-words">
                                 {product.name}
                             </div>
                             <div className="absolute -top-1.5 left-4">
-                                <div className="w-3 h-3 bg-white border-l border-t border-gray-200 transform rotate-45"></div>
+                                <div className="w-3 h-3 bg-popover border-l border-t border-border transform rotate-45"></div>
                             </div>
                         </div>
                     )}
                 </div>
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+            <td className="p-4 align-middle">
                 {orderUrl ? (
                     <a
                         href={orderUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
+                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors cursor-pointer"
                         title="View order"
                     >
                         {product.marketplace} →
                     </a>
                 ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">
                         {product.marketplace}
                     </span>
                 )}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+            <td className="p-4 align-middle text-right">
                 ${product.price.toFixed(2)}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+            <td className="p-4 align-middle text-right">
                 {isEditing ? (
                     <input
                         type="number"
                         step="1"
                         value={editingCostValue}
                         onChange={(e) => setEditingCostValue(e.target.value)}
-                        className="w-24 px-2 py-1 border border-blue-500 rounded text-right"
+                        className="flex h-9 w-24 rounded-md border border-input bg-transparent px-2 py-1 text-right text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                         autoFocus
                         onFocus={(e) => e.target.select()}
                         onKeyDown={(e) => {
@@ -180,7 +186,7 @@ export function ProductTableRow({
                         onClick={() =>
                             onStartEditing(product._id, product.cost || 0)
                         }
-                        className={`hover:bg-gray-100 px-2 py-1 rounded w-24 text-right ${product.cost === undefined ? "text-orange-600 font-semibold" : ""}`}
+                        className={`hover:bg-accent px-2 py-1 rounded w-24 text-right ${product.cost === undefined ? "text-destructive font-semibold" : ""}`}
                     >
                         {product.cost !== undefined
                             ? `${product.cost.toFixed(2)}`
@@ -188,7 +194,7 @@ export function ProductTableRow({
                     </button>
                 )}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+            <td className="p-4 align-middle text-right">
                 {product.fees_breakdown &&
                     product.fees_breakdown.length > 0 &&
                     product.fees_breakdown.some(
@@ -275,30 +281,30 @@ export function ProductTableRow({
                                                 key={index}
                                                 className="flex justify-between items-center gap-4"
                                             >
-                                                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide truncate flex-shrink">
+                                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide truncate flex-shrink">
                                                     {fee.type}
                                                     {fee.isEstimated && (
-                                                        <span className="text-gray-400 ml-1">
+                                                        <span className="text-muted-foreground/60 ml-1">
                                                             *
                                                         </span>
                                                     )}
                                                 </span>
-                                                <span className="text-sm font-semibold text-gray-900 whitespace-nowrap flex-shrink-0">
+                                                <span className="text-sm font-semibold whitespace-nowrap flex-shrink-0">
                                                     ${fee.amount.toFixed(2)}
                                                 </span>
                                             </div>
                                         ))}
-                                        <div className="border-t border-gray-200 pt-2.5 mt-2.5 flex justify-between items-center gap-4">
-                                            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                        <div className="border-t border-border pt-2.5 mt-2.5 flex justify-between items-center gap-4">
+                                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                                 Total Fees
                                             </span>
-                                            <span className="text-sm font-bold text-gray-900 whitespace-nowrap flex-shrink-0">
+                                            <span className="text-sm font-bold whitespace-nowrap flex-shrink-0">
                                                 ${product.fees.toFixed(2)}
                                             </span>
                                         </div>
                                         {hasEstimatedFees && (
-                                            <div className="pt-1 mt-1 border-t border-gray-100">
-                                                <span className="text-xs text-gray-500 italic">
+                                            <div className="pt-1 mt-1 border-t border-border">
+                                                <span className="text-xs text-muted-foreground italic">
                                                     *Estimated
                                                 </span>
                                             </div>
@@ -308,7 +314,7 @@ export function ProductTableRow({
                             );
                         })()}
                     >
-                        <span className="cursor-help underline decoration-dotted decoration-gray-400 hover:decoration-gray-600">
+                        <span className="cursor-help underline decoration-dotted decoration-muted-foreground/50 hover:decoration-muted-foreground">
                             ${product.fees.toFixed(2)}
                         </span>
                     </Tooltip>
@@ -316,7 +322,7 @@ export function ProductTableRow({
                     <span>${product.fees.toFixed(2)}</span>
                 )}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+            <td className="p-4 align-middle text-right">
                 <div className="flex flex-col items-end">
                     {product.buyerPaidShipping !== undefined &&
                     product.buyerPaidShipping !== 0 ? (
@@ -325,29 +331,29 @@ export function ProductTableRow({
                                 <div className="w-56">
                                     <div className="space-y-2.5">
                                         <div className="flex justify-between items-center">
-                                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                                 Seller Shipping
                                             </span>
-                                            <span className="text-sm font-semibold text-gray-900">
+                                            <span className="text-sm font-semibold">
                                                 ${product.shipping.toFixed(2)}
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                                 Buyer Paid
                                             </span>
-                                            <span className="text-sm font-semibold text-green-600">
+                                            <span className="text-sm font-semibold text-muted-foreground">
                                                 $
                                                 {product.buyerPaidShipping.toFixed(
                                                     2
                                                 )}
                                             </span>
                                         </div>
-                                        <div className="border-t border-gray-200 pt-2.5 mt-2.5 flex justify-between items-center">
-                                            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                        <div className="border-t border-border pt-2.5 mt-2.5 flex justify-between items-center">
+                                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                                 Net Cost
                                             </span>
-                                            <span className="text-sm font-bold text-gray-900">
+                                            <span className="text-sm font-bold">
                                                 ${netShipping.toFixed(2)}
                                             </span>
                                         </div>
@@ -355,7 +361,7 @@ export function ProductTableRow({
                                 </div>
                             }
                         >
-                            <span className="cursor-help underline decoration-dotted decoration-gray-400 hover:decoration-gray-600">
+                            <span className="cursor-help underline decoration-dotted decoration-muted-foreground/50 hover:decoration-muted-foreground">
                                 ${netShipping.toFixed(2)}
                             </span>
                         </Tooltip>
@@ -364,53 +370,53 @@ export function ProductTableRow({
                     )}
                     {product.shippingPercentage !== undefined &&
                         product.shippingPercentage !== 100 && (
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-muted-foreground">
                                 ({product.shippingPercentage.toFixed(1)}%)
                             </span>
                         )}
                 </div>
             </td>
             <td
-                className={`px-6 py-4 whitespace-nowrap text-sm font-semibold text-right ${!hasCost ? "text-gray-900 blur-sm" : isDubious ? "text-yellow-600" : isProfitable ? "text-green-600" : "text-red-600"}`}
+                className={`p-4 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
             >
                 ${profit.toFixed(2)}
             </td>
             <td
-                className={`px-6 py-4 whitespace-nowrap text-sm font-semibold text-right ${!hasCost ? "text-gray-900 blur-sm" : isDubious ? "text-yellow-600" : isProfitable ? "text-green-600" : "text-red-600"}`}
+                className={`p-4 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
             >
                 {margin.toFixed(1)}%
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-center">
+            <td className="p-4 align-middle text-center">
                 {!hasCost ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
                         ? No cost
                     </span>
                 ) : isDubious ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning">
                         [!] Dubious
                     </span>
                 ) : isProfitable ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success">
                         ✓ Profitable
                     </span>
                 ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
                         ✗ Loss
                     </span>
                 )}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+            <td className="p-4 align-middle text-center">
                 {product.orderDate ? (
                     <>
                         <div>
                             {new Date(product.orderDate).toLocaleDateString()}
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted-foreground">
                             {new Date(product.orderDate).toLocaleTimeString()}
                         </div>
                     </>
                 ) : (
-                    <div className="text-gray-400">-</div>
+                    <div className="text-muted-foreground">-</div>
                 )}
             </td>
         </tr>

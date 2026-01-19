@@ -1,9 +1,16 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Badge } from "./ui/badge";
+import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
-export function ShopifyConnect() {
+type ShopifyConnectProps = {
+  isConnected?: boolean;
+};
+
+export function ShopifyConnect({ isConnected }: ShopifyConnectProps) {
   const [shopDomain, setShopDomain] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -48,55 +55,80 @@ export function ShopifyConnect() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
-      <h2 className="text-2xl font-bold mb-4">Connect Shopify Store</h2>
-      <p className="text-gray-600 mb-6">
-        Connect your Shopify store to automatically sync orders and analyze profitability.
-      </p>
-      
-      <form onSubmit={handleConnect} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Shop Domain
-          </label>
-          <input
-            type="text"
-            value={shopDomain}
-            onChange={(e) => setShopDomain(e.target.value)}
-            placeholder="your-store.myshopify.com"
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={isConnecting}
-          />
-          <p className="text-sm text-gray-500 mt-1">
-            Enter your Shopify store domain (e.g., your-store.myshopify.com)
-          </p>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <CardTitle>Shopify</CardTitle>
+            <CardDescription>
+              {isConnected 
+                ? "Your Shopify store is connected and ready to sync orders."
+                : "Connect your Shopify store to automatically sync orders and analyze profitability."}
+            </CardDescription>
+          </div>
+          <Badge 
+            variant={isConnected ? "default" : "secondary"}
+          >
+            {isConnected ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 mr-1" />
+                Connected
+              </>
+            ) : (
+              <>
+                <XCircle className="h-4 w-4 mr-1" />
+                Not Connected
+              </>
+            )}
+          </Badge>
         </div>
+      </CardHeader>
+      {!isConnected && (
+        <CardContent className="space-y-4">
+        <form onSubmit={handleConnect} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Shop Domain
+            </label>
+            <Input
+              type="text"
+              value={shopDomain}
+              onChange={(e) => setShopDomain(e.target.value)}
+              placeholder="your-store.myshopify.com"
+              disabled={isConnecting}
+            />
+            <p className="text-sm text-muted-foreground">
+              Enter your Shopify store domain (e.g., your-store.myshopify.com)
+            </p>
+          </div>
 
-        <button
-          type="submit"
-          disabled={isConnecting || !shopDomain}
-          className="w-full px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {isConnecting ? (
-            <>
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              Connecting...
-            </>
-          ) : (
-            "Connect Shopify Store"
-          )}
-        </button>
-      </form>
+          <Button
+            type="submit"
+            disabled={isConnecting || !shopDomain}
+            className="w-full"
+          >
+            {isConnecting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Connecting...
+              </>
+            ) : (
+              "Connect Shopify Store"
+            )}
+          </Button>
+        </form>
 
-      <div className="mt-6 p-4 bg-blue-50 rounded-md">
-        <h3 className="font-semibold text-blue-900 mb-2">Setup Instructions:</h3>
-        <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
-          <li>Enter your Shopify store domain above</li>
-          <li>Click "Connect Shopify Store"</li>
-          <li>You'll be redirected to Shopify to authorize the app</li>
-          <li>After authorization, you'll be redirected back to sync orders</li>
-        </ol>
-      </div>
-    </div>
+        <div className="p-4 bg-muted rounded-md border">
+          <h3 className="font-semibold mb-2">Setup Instructions:</h3>
+          <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+            <li>Enter your Shopify store domain above</li>
+            <li>Click "Connect Shopify Store"</li>
+            <li>You'll be redirected to Shopify to authorize the app</li>
+            <li>After authorization, you'll be redirected back to sync orders</li>
+          </ol>
+        </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }

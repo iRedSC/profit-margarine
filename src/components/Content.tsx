@@ -2,83 +2,68 @@ import { Authenticated, Unauthenticated, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { SignInForm } from "../SignInForm";
 import { ShopifyEmbedded } from "../ShopifyEmbedded";
-import { ShopifyConnect } from "./ShopifyConnect";
-import { EbayConnect } from "./EbayConnect";
-import { TiktokConnect } from "./TiktokConnect";
 import { ProductAnalyzer } from "./ProductAnalyzer";
-import { useState } from "react";
+import { EbayConnect } from "./EbayConnect";
+import { ShopifyConnect } from "./ShopifyConnect";
+import { TiktokConnect } from "./TiktokConnect";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 
-export function Content() {
+type ContentProps = {
+    selectedView: string;
+};
+
+export function Content({ selectedView }: ContentProps) {
     const loggedInUser = useQuery(api.auth.loggedInUser);
-    const isShopifyConnected = useQuery(
-        api.shopifyMutations.isShopifyConnected
-    );
+    const isShopifyConnected = useQuery(api.shopifyMutations.isShopifyConnected);
     const isEbayConnected = useQuery(api.ebayMutations.isEbayConnected);
     const isTiktokConnected = useQuery(api.tiktokMutations.isTiktokConnected);
-    const [isConnectorSectionOpen, setIsConnectorSectionOpen] = useState(false);
 
     if (loggedInUser === undefined) {
         return (
-            <div className="flex justify-center items-center">
+            <div className="flex justify-center items-center min-h-[400px]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
         );
     }
 
-    const hasDisconnectedMarketplaces = 
-        !isShopifyConnected || !isEbayConnected || !isTiktokConnected;
-
     return (
-        <div className="max-w-[95%] mx-auto">
+        <div className="space-y-4 p-4 md:p-8 pt-6">
             <Authenticated>
-                <ShopifyEmbedded />
-                {hasDisconnectedMarketplaces && (
-                    <div className="bg-white rounded-lg shadow-sm mb-8">
-                        <button
-                            onClick={() => setIsConnectorSectionOpen(!isConnectorSectionOpen)}
-                            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-                        >
-                            <h2 className="text-xl font-semibold">
-                                Marketplace Connections
-                            </h2>
-                            <svg
-                                className={`w-5 h-5 transition-transform ${
-                                    isConnectorSectionOpen ? "rotate-180" : ""
-                                }`}
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 9l-7 7-7-7"
-                                />
-                            </svg>
-                        </button>
-                        {isConnectorSectionOpen && (
-                            <div className="px-6 pb-6">
-                                {!isShopifyConnected && <ShopifyConnect />}
-                                {!isEbayConnected && <EbayConnect />}
-                                {!isTiktokConnected && <TiktokConnect />}
-                            </div>
-                        )}
+                {selectedView === "products" && (
+                    <div className="space-y-4">
+                        <ShopifyEmbedded />
+                        <ProductAnalyzer />
                     </div>
                 )}
-                <ProductAnalyzer />
+                {selectedView === "connections" && (
+                    <div className="space-y-6">
+                        <div>
+                            <h2 className="text-3xl font-bold tracking-tight">Marketplace Connections</h2>
+                            <p className="text-muted-foreground">
+                                Connect your marketplaces to sync orders and analyze profitability.
+                            </p>
+                        </div>
+                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                            <ShopifyConnect isConnected={isShopifyConnected} />
+                            <EbayConnect isConnected={isEbayConnected} />
+                            <TiktokConnect isConnected={isTiktokConnected} />
+                        </div>
+                    </div>
+                )}
             </Authenticated>
             <Unauthenticated>
-                <div className="max-w-md mx-auto">
-                    <div className="text-center mb-8">
-                        <h1 className="text-4xl font-bold text-primary mb-4">
-                            Product Profitability Analyzer
-                        </h1>
-                        <p className="text-xl text-secondary">
-                            Sign in to track your products
-                        </p>
+                <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
+                    <div className="w-full max-w-md space-y-6">
+                        <div className="text-center space-y-2">
+                            <h1 className="text-4xl font-bold tracking-tight">
+                                Product Profitability Analyzer
+                            </h1>
+                            <p className="text-xl text-muted-foreground">
+                                Sign in to track your products
+                            </p>
+                        </div>
+                        <SignInForm />
                     </div>
-                    <SignInForm />
                 </div>
             </Unauthenticated>
         </div>

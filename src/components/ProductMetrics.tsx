@@ -70,119 +70,107 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
     }
 
     return (
-        <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="rounded-lg border bg-card p-6">
             <h2 className="text-2xl font-bold mb-6">Overview</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
-                    <div className="text-sm font-medium text-blue-700 mb-1">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div className="rounded-lg p-4 border bg-info/5 border-info/30">
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Total Gross
                     </div>
-                    <div className="text-2xl font-bold text-blue-900">
+                    <div className="text-2xl font-bold text-info">
                         ${formatCurrency(totalGross)}
                     </div>
                 </div>
 
-                <div
-                    className={`bg-gradient-to-br rounded-lg p-4 border ${totalProfit >= 0 ? "from-green-50 to-green-100 border-green-200" : "from-red-50 to-red-100 border-red-200"}`}
-                >
-                    <div
-                        className={`text-sm font-medium mb-1 ${totalProfit >= 0 ? "text-green-700" : "text-red-700"}`}
-                    >
+                <div className={`rounded-lg p-4 border ${totalProfit >= 0 ? "bg-success/5 border-success/30" : "bg-destructive/5 border-destructive/30"}`}>
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Total Profit
                     </div>
-                    <div
-                        className={`text-2xl font-bold ${totalProfit >= 0 ? "text-green-900" : "text-red-900"}`}
-                    >
+                    <div className={`text-2xl font-bold ${totalProfit < 0 ? "text-destructive" : "text-success"}`}>
                         ${formatCurrency(totalProfit)}{" "}
-                        <span
-                            className={`text-sm font-normal ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}
-                        >
+                        <span className={`text-sm font-normal ${totalProfit < 0 ? "text-destructive/70" : "text-success/70"}`}>
                             ({profitPercentage.toFixed(1)}%)
                         </span>
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-4 border border-slate-200">
-                    <div className="text-sm font-medium text-slate-700 mb-1">
+                <div className="rounded-lg p-4 border bg-muted/30 border-border">
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Total Cost
                     </div>
-                    <div className="text-2xl font-bold text-slate-900">
+                    <div className="text-2xl font-bold">
                         ${formatCurrency(totalCost)}{" "}
-                        <span className="text-sm font-normal text-slate-600">
+                        <span className="text-sm font-normal text-muted-foreground">
                             ({costPercentage.toFixed(1)}%)
                         </span>
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
-                    <div className="text-sm font-medium text-purple-700 mb-1">
+                <div className="rounded-lg p-4 border bg-muted/30 border-border">
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Total Fees
                     </div>
-                    <div className="text-2xl font-bold text-purple-900">
+                    <div className="text-2xl font-bold">
                         ${formatCurrency(totalFees)}{" "}
-                        <span className="text-sm font-normal text-purple-600">
+                        <span className="text-sm font-normal text-muted-foreground">
                             ({feesPercentage.toFixed(1)}%)
                         </span>
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4 border border-orange-200">
-                    <div className="text-sm font-medium text-orange-700 mb-1">
+                <div className="rounded-lg p-4 border bg-muted/30 border-border">
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Total Shipping
                     </div>
-                    <div className="text-2xl font-bold text-orange-900">
+                    <div className="text-2xl font-bold">
                         ${formatCurrency(totalShipping)}{" "}
-                        <span className="text-sm font-normal text-orange-600">
+                        <span className="text-sm font-normal text-muted-foreground">
                             ({shippingPercentage.toFixed(1)}%)
                         </span>
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-teal-50 to-teal-100 rounded-lg p-4 border border-teal-200">
-                    <div className="text-sm font-medium text-teal-700 mb-1">
+                <div className={`rounded-lg p-4 border ${averageProfit < 0 ? "bg-destructive/5 border-destructive/30" : averageProfit > 0 ? "bg-success/5 border-success/30" : "bg-muted/30 border-border"}`}>
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Average Profit
                     </div>
-                    <div
-                        className={`text-2xl font-bold ${averageProfit >= 0 ? "text-teal-900" : "text-red-900"}`}
-                    >
+                    <div className={`text-2xl font-bold ${averageProfit < 0 ? "text-destructive" : averageProfit > 0 ? "text-success" : ""}`}>
                         ${formatCurrency(averageProfit)}
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg p-4 border border-indigo-200">
-                    <div className="text-sm font-medium text-indigo-700 mb-1">
+                <div className={`rounded-lg p-4 border ${averageMargin < 0 ? "bg-destructive/5 border-destructive/30" : averageMargin > 0 ? "bg-success/5 border-success/30" : "bg-muted/30 border-border"}`}>
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Average Margin
                     </div>
-                    <div
-                        className={`text-2xl font-bold ${averageMargin >= 0 ? "text-indigo-900" : "text-red-900"}`}
-                    >
+                    <div className={`text-2xl font-bold ${averageMargin < 0 ? "text-destructive" : averageMargin > 0 ? "text-success" : ""}`}>
                         {averageMargin.toFixed(1)}%
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-4 border border-amber-200">
-                    <div className="text-sm font-medium text-amber-700 mb-1">
+                <div className="rounded-lg p-4 border bg-info/5 border-info/30">
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Rows Without Cost
                     </div>
-                    <div className="text-2xl font-bold text-amber-900">
+                    <div className="text-2xl font-bold text-info">
                         {rowsWithoutCost}
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4 border border-red-200">
-                    <div className="text-sm font-medium text-red-700 mb-1">
+                <div className="rounded-lg p-4 border bg-destructive/5 border-destructive/30">
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Unprofitable
                     </div>
-                    <div className="text-2xl font-bold text-red-900">
+                    <div className="text-2xl font-bold text-destructive">
                         {unprofitableRows}
                     </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg p-4 border border-yellow-200">
-                    <div className="text-sm font-medium text-yellow-700 mb-1">
+                <div className="rounded-lg p-4 border bg-warning/5 border-warning/30">
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
                         Dubious {"(<5% or <$3)"}
                     </div>
-                    <div className="text-2xl font-bold text-yellow-900">
+                    <div className="text-2xl font-bold text-warning">
                         {barelyProfitableRows}
                     </div>
                 </div>

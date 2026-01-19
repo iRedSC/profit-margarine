@@ -11,7 +11,7 @@ export function SignInForm() {
   return (
     <div className="w-full">
       <form
-        className="flex flex-col gap-form-field"
+        className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           setSubmitting(true);
@@ -49,7 +49,7 @@ export function SignInForm() {
         <button className="auth-button" type="submit" disabled={submitting}>
           {flow === "signIn" ? "Sign in" : "Sign up"}
         </button>
-        <div className="text-center text-sm text-secondary">
+        <div className="text-center text-sm text-muted-foreground">
           <span>
             {flow === "signIn"
               ? "Don't have an account? "
@@ -57,7 +57,7 @@ export function SignInForm() {
           </span>
           <button
             type="button"
-            className="text-primary hover:text-primary-hover hover:underline font-medium cursor-pointer"
+            className="text-primary hover:text-primary/90 hover:underline font-medium cursor-pointer"
             onClick={() => setFlow(flow === "signIn" ? "signIn" : "signIn")}
           >
             {/* {flow === "signIn" ? "Sign up instead" : "Sign in instead"} */}

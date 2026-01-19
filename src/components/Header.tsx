@@ -4,7 +4,9 @@ import { SignOutButton } from "../SignOutButton";
 import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
-import profitFinderLogo from "../../profit_finder_logo.png";
+import { Button } from "./ui/button";
+import { Loader2 } from "lucide-react";
+import { SidebarTrigger } from "./ui/sidebar";
 
 export function Header() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -145,31 +147,24 @@ export function Header() {
     };
 
     return (
-        <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm h-16 flex justify-between items-center border-b shadow-sm px-4">
-            <div className="flex items-center gap-3">
-                <img 
-                    src={profitFinderLogo} 
-                    alt="Profit Finder Logo" 
-                    className="h-8 w-8"
-                />
-                <h2 className="text-xl font-semibold text-primary">
-                    Profit Finder
-                </h2>
+        <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 h-16 flex justify-between items-center px-4 lg:px-6">
+            <div className="flex items-center gap-2">
+                <SidebarTrigger />
             </div>
             <Authenticated>
                 <div className="flex items-center gap-4">
                     {activeSyncs.length > 0 && (
-                        <div className="text-sm text-gray-600 min-w-[300px] text-right">
+                        <div className="text-sm text-muted-foreground min-w-[300px] text-right">
                             {activeSyncs.map((sync) => {
                                 const marketplaceName = sync.marketplace.charAt(0).toUpperCase() + sync.marketplace.slice(1);
                                 const progress = sync.total > 0 
                                     ? `${sync.complete}/${sync.total}` 
                                     : sync.message || "Starting...";
                                 return (
-                                    <div key={sync._id} className="text-blue-600 font-medium">
+                                    <div key={sync._id} className="text-primary font-medium">
                                         {marketplaceName}: {progress}
                                         {sync.message && sync.total === 0 && (
-                                            <span className="text-gray-500 ml-2">({sync.message})</span>
+                                            <span className="text-muted-foreground ml-2">({sync.message})</span>
                                         )}
                                     </div>
                                 );
@@ -177,26 +172,25 @@ export function Header() {
                         </div>
                     )}
                     <div className="relative">
-                        <button
+                        <Button
                             onClick={() => {
                                 void handleSyncAll(false);
                             }}
                             onContextMenu={handleContextMenu}
                             disabled={isSyncing}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
                             {isSyncing ? (
                                 <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
                                     Syncing...
                                 </>
                             ) : (
                                 "Sync All"
                             )}
-                        </button>
+                        </Button>
                         {contextMenu && (
                             <div
-                                className="fixed bg-white border border-gray-200 rounded-md shadow-lg py-1 z-50 min-w-[160px]"
+                                className="fixed rounded-md border bg-popover text-popover-foreground shadow-md py-1 z-50 min-w-[160px]"
                                 style={{
                                     left: `${contextMenu.x}px`,
                                     top: `${contextMenu.y}px`,
@@ -207,7 +201,7 @@ export function Header() {
                                     onClick={() => {
                                         void handleSyncAll(true);
                                     }}
-                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors"
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
                                 >
                                     Sync & Update All
                                 </button>
@@ -215,7 +209,7 @@ export function Header() {
                                     onClick={() => {
                                         void handleSyncOneYear();
                                     }}
-                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors"
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
                                 >
                                     Sync 1 year
                                 </button>
@@ -232,20 +226,20 @@ export function Header() {
                         }}
                         className="hidden"
                     />
-                    <button
+                    <Button
                         onClick={handleImportClick}
                         disabled={isImporting}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        variant="default"
                     >
                         {isImporting ? (
                             <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                <Loader2 className="h-4 w-4 animate-spin" />
                                 Importing...
                             </>
                         ) : (
                             "Import Costs"
                         )}
-                    </button>
+                    </Button>
 
                     <SignOutButton />
                 </div>

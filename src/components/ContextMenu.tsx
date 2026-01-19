@@ -57,7 +57,7 @@ export function ContextMenu({ x, y, onClose, items }: ContextMenuProps) {
     return (
         <div
             ref={menuRef}
-            className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[180px]"
+            className="fixed z-50 bg-popover border rounded-lg shadow-lg py-1 min-w-[180px]"
             style={{
                 left: `${x}px`,
                 top: `${y}px`,
@@ -72,7 +72,7 @@ export function ContextMenu({ x, y, onClose, items }: ContextMenuProps) {
                         onClose();
                     }}
                     disabled={item.disabled}
-                    className={`w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    className={`w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:cursor-not-allowed ${
                         index === 0 ? "rounded-t-lg" : ""
                     } ${index === items.length - 1 ? "rounded-b-lg" : ""}`}
                 >

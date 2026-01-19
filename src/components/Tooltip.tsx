@@ -71,7 +71,7 @@ export function Tooltip({
             {isVisible && (
                 <div
                     ref={tooltipRef}
-                    className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg py-3 px-4 pointer-events-none"
+                    className="fixed z-[9999] bg-popover border rounded-lg shadow-lg py-3 px-4 pointer-events-none text-popover-foreground"
                     style={{
                         top: position ? `${position.top}px` : '-9999px',
                         right: position ? `${position.right}px` : '-9999px',
@@ -83,7 +83,7 @@ export function Tooltip({
                     <div className={`absolute right-4 ${
                         showAbove ? "-bottom-1.5" : "-top-1.5"
                     }`}>
-                        <div className={`w-3 h-3 bg-white border-gray-200 transform rotate-45 ${
+                        <div className={`w-3 h-3 bg-popover border-border transform rotate-45 ${
                             showAbove 
                                 ? "border-r border-b" 
                                 : "border-l border-t"
