@@ -12,7 +12,7 @@ import {
     isSyncCanceled,
     validateSyncActive,
 } from "./marketplaceUtils";
-import { finishSync } from "./marketplaceSync";
+import { finishSync } from "./marketplaceUtils";
 import { SyncMessages } from "./syncMessages";
 
 async function getEbayAccessToken(
@@ -712,6 +712,26 @@ export const processEbayOrder = internalAction({
             );
             const buyerPaidShippingTotal = deliveryCost - deliveryDiscount;
             
+            // Helper function to check if a transaction belongs to this order
+            const transactionBelongsToOrder = (transaction: any): boolean => {
+                // Check direct orderId field
+                if (transaction.orderId === args.orderId) {
+                    return true;
+                }
+                // Check references array for ORDER_ID reference
+                if (
+                    transaction.references &&
+                    Array.isArray(transaction.references)
+                ) {
+                    return transaction.references.some(
+                        (ref: any) =>
+                            ref.referenceType === "ORDER_ID" &&
+                            ref.referenceId === args.orderId
+                    );
+                }
+                return false;
+            };
+            
             // Extract shipping insurance from transactions
             let shippingInsurance = 0;
             for (const transaction of args.allTransactions) {
@@ -789,26 +809,6 @@ export const processEbayOrder = internalAction({
                     upperFeeType.includes("TAX") ||
                     upperTransactionType.includes("TAX")
                 );
-            };
-
-            // Helper function to check if a transaction belongs to this order
-            const transactionBelongsToOrder = (transaction: any): boolean => {
-                // Check direct orderId field
-                if (transaction.orderId === args.orderId) {
-                    return true;
-                }
-                // Check references array for ORDER_ID reference
-                if (
-                    transaction.references &&
-                    Array.isArray(transaction.references)
-                ) {
-                    return transaction.references.some(
-                        (ref: any) =>
-                            ref.referenceType === "ORDER_ID" &&
-                            ref.referenceId === args.orderId
-                    );
-                }
-                return false;
             };
 
             // First pass: collect line-item fees from marketplaceFees (most accurate source)

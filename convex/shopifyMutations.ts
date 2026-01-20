@@ -8,7 +8,7 @@ import {
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { initializeSyncStatus } from "./marketplaceSync";
+import { initializeSyncStatus } from "./products/sync";
 
 export const syncShopifyOrders = mutation({
     args: {

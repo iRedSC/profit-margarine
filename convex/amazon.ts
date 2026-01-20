@@ -12,7 +12,7 @@ import {
     isSyncCanceled,
     validateSyncActive,
 } from "./marketplaceUtils";
-import { finishSync } from "./marketplaceSync";
+import { finishSync } from "./marketplaceUtils";
 import { SyncMessages } from "./syncMessages";
 const SellingPartnerAPI = (AmazonSPAPI as any).default || AmazonSPAPI;
 

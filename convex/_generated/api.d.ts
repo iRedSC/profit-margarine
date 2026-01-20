@@ -9,9 +9,6 @@
  */
 
 import type * as amazon from "../amazon.js";
-import type * as apiClients_amazonClient from "../apiClients/amazonClient.js";
-import type * as apiClients_ebayClient from "../apiClients/ebayClient.js";
-import type * as apiClients_shopifyClient from "../apiClients/shopifyClient.js";
 import type * as auth from "../auth.js";
 import type * as ebay from "../ebay.js";
 import type * as ebayMutations from "../ebayMutations.js";
@@ -21,17 +18,22 @@ import type * as ebayRoutes from "../ebayRoutes.js";
 import type * as http from "../http.js";
 import type * as importCosts from "../importCosts.js";
 import type * as marketplaceConnections from "../marketplaceConnections.js";
-import type * as marketplaceProcessors from "../marketplaceProcessors.js";
-import type * as marketplaceSync from "../marketplaceSync.js";
-import type * as marketplaceSyncBase from "../marketplaceSyncBase.js";
 import type * as marketplaceUtils from "../marketplaceUtils.js";
 import type * as productResync from "../productResync.js";
 import type * as products from "../products.js";
+import type * as products_mutations from "../products/mutations.js";
+import type * as products_queries from "../products/queries.js";
+import type * as products_resync from "../products/resync.js";
+import type * as products_sync from "../products/sync.js";
 import type * as router from "../router.js";
 import type * as shopify from "../shopify.js";
 import type * as shopifyMutations from "../shopifyMutations.js";
 import type * as shopifyOAuth from "../shopifyOAuth.js";
 import type * as shopifyRouter from "../shopifyRouter.js";
+import type * as shopify_graphql from "../shopify/graphql.js";
+import type * as shopify_orderProcessing from "../shopify/orderProcessing.js";
+import type * as shopify_shipping from "../shopify/shipping.js";
+import type * as shopify_sync from "../shopify/sync.js";
 import type * as syncMessages from "../syncMessages.js";
 import type * as tiktokMutations from "../tiktokMutations.js";
 import type * as tiktokOAuth from "../tiktokOAuth.js";
@@ -45,9 +47,6 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   amazon: typeof amazon;
-  "apiClients/amazonClient": typeof apiClients_amazonClient;
-  "apiClients/ebayClient": typeof apiClients_ebayClient;
-  "apiClients/shopifyClient": typeof apiClients_shopifyClient;
   auth: typeof auth;
   ebay: typeof ebay;
   ebayMutations: typeof ebayMutations;
@@ -57,17 +56,22 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   importCosts: typeof importCosts;
   marketplaceConnections: typeof marketplaceConnections;
-  marketplaceProcessors: typeof marketplaceProcessors;
-  marketplaceSync: typeof marketplaceSync;
-  marketplaceSyncBase: typeof marketplaceSyncBase;
   marketplaceUtils: typeof marketplaceUtils;
   productResync: typeof productResync;
   products: typeof products;
+  "products/mutations": typeof products_mutations;
+  "products/queries": typeof products_queries;
+  "products/resync": typeof products_resync;
+  "products/sync": typeof products_sync;
   router: typeof router;
   shopify: typeof shopify;
   shopifyMutations: typeof shopifyMutations;
   shopifyOAuth: typeof shopifyOAuth;
   shopifyRouter: typeof shopifyRouter;
+  "shopify/graphql": typeof shopify_graphql;
+  "shopify/orderProcessing": typeof shopify_orderProcessing;
+  "shopify/shipping": typeof shopify_shipping;
+  "shopify/sync": typeof shopify_sync;
   syncMessages: typeof syncMessages;
   tiktokMutations: typeof tiktokMutations;
   tiktokOAuth: typeof tiktokOAuth;

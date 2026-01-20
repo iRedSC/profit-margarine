@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { validateSyncActive, handleSyncError } from "./marketplaceUtils";
-import { finishSync } from "./marketplaceSync";
+import { finishSync } from "./marketplaceUtils";
 import { Id } from "./_generated/dataModel";
 
 export const resyncOrderAction = internalAction({
@@ -103,7 +103,7 @@ export const resyncOrderAction = internalAction({
 
                 // Fetch the actual shipping cost from order events (not from stored product)
                 // This handles cases where multiple products ship separately with separate labels
-                const actualShippingCost = await ctx.runAction(
+                const shippingData = await ctx.runAction(
                     internal.shopify.getShippingCostForOrder,
                     {
                         orderGid: orderGid,
@@ -115,7 +115,7 @@ export const resyncOrderAction = internalAction({
                 await ctx.runAction(internal.shopify.processShopifyOrder, {
                     userId: args.userId,
                     orderGid: orderGid,
-                    shippingLabelCost: actualShippingCost, // Use actual shipping from events
+                    shippingLabelCost: shippingData.shipping, // Use actual shipping from events
                     shop: connection.shop,
                     accessToken: connection.accessToken,
                     updateExisting: true,
@@ -179,7 +179,7 @@ export const syncOrderByIdAction = internalAction({
                 );
 
                 // Fetch the actual shipping cost from transactions
-                const actualShippingCost = await ctx.runAction(
+                const shippingData = await ctx.runAction(
                     internal.ebay.getShippingCostForOrder,
                     {
                         orderId: args.orderId,
@@ -191,7 +191,7 @@ export const syncOrderByIdAction = internalAction({
                 await ctx.runAction(internal.ebay.processEbayOrder, {
                     userId: args.userId,
                     orderId: args.orderId,
-                    shippingCost: actualShippingCost,
+                    shippingCost: shippingData.shipping,
                     accessToken,
                     allTransactions: transactions,
                     updateExisting: true,
@@ -220,7 +220,7 @@ export const syncOrderByIdAction = internalAction({
                         : `gid://shopify/Order/${args.orderId}`;
 
                 // Fetch the actual shipping cost from order events
-                const actualShippingCost = await ctx.runAction(
+                const shippingData = await ctx.runAction(
                     internal.shopify.getShippingCostForOrder,
                     {
                         orderGid: orderGid,
@@ -232,7 +232,7 @@ export const syncOrderByIdAction = internalAction({
                 await ctx.runAction(internal.shopify.processShopifyOrder, {
                     userId: args.userId,
                     orderGid: orderGid,
-                    shippingLabelCost: actualShippingCost,
+                    shippingLabelCost: shippingData.shipping,
                     shop: connection.shop,
                     accessToken: connection.accessToken,
                     updateExisting: true,
