@@ -148,6 +148,11 @@ export const processAmazonOrder = internalAction({
 
             // Check if order is cancelled
             const orderStatus = orderResponse.OrderStatus;
+            
+            // Check if this is an FBA order (AFN = Amazon Fulfillment Network)
+            const fulfillmentChannel = orderResponse.FulfillmentChannel || "";
+            const isFBA = fulfillmentChannel === "AFN";
+            
             log.orderData = {
                 orderStatus: orderStatus,
                 purchaseDate: orderResponse.PurchaseDate,
@@ -223,45 +228,111 @@ export const processAmazonOrder = internalAction({
                 });
             }
 
-            // Calculate total shipping from AdjustmentEventList
+            // Extract FBA fulfillment fees for FBA orders
+            let totalFBAFees = 0;
+            const fbaFeesBySKU: Record<string, number> = {};
+            
+            if (isFBA && financialEvents?.ShipmentEventList) {
+                for (const shipmentEvent of financialEvents.ShipmentEventList) {
+                    if (shipmentEvent.AmazonOrderId === args.orderId) {
+                        // Extract FBA fees from ShipmentItemList
+                        if (shipmentEvent.ShipmentItemList) {
+                            for (const shipmentItem of shipmentEvent.ShipmentItemList) {
+                                const sku = shipmentItem.SellerSKU || "";
+                                let itemFBAFees = 0;
+                                
+                                if (shipmentItem.ItemFeeList) {
+                                    for (const fee of shipmentItem.ItemFeeList) {
+                                        const feeType = (fee.FeeType || fee.FeeName || "").toUpperCase();
+                                        // Check if this is an FBA-related fee
+                                        if (feeType.includes("FBA") || 
+                                            feeType.includes("FULFILLMENT") ||
+                                            feeType.includes("WEIGHT") ||
+                                            feeType.includes("PICK") ||
+                                            feeType.includes("PACK")) {
+                                            const feeAmount = Math.abs(
+                                                parseFloat(
+                                                    fee.FeeAmount?.CurrencyAmount || "0"
+                                                )
+                                            );
+                                            itemFBAFees += feeAmount;
+                                        }
+                                    }
+                                }
+                                
+                                if (itemFBAFees > 0) {
+                                    fbaFeesBySKU[sku] = (fbaFeesBySKU[sku] || 0) + itemFBAFees;
+                                    totalFBAFees += itemFBAFees;
+                                }
+                            }
+                        }
+                        
+                        // Also check for order-level FBA fees
+                        if (shipmentEvent.OrderFeeList) {
+                            for (const fee of shipmentEvent.OrderFeeList) {
+                                const feeType = (fee.FeeType || fee.FeeName || "").toUpperCase();
+                                if (feeType.includes("FBA") || 
+                                    feeType.includes("FULFILLMENT")) {
+                                    const feeAmount = Math.abs(
+                                        parseFloat(
+                                            fee.FeeAmount?.CurrencyAmount || "0"
+                                        )
+                                    );
+                                    totalFBAFees += feeAmount;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Calculate total shipping based on fulfillment channel
             // Note: Amazon uses negative values to represent debits (costs)
             // We need to convert negative values to positive for our cost calculations
             let shippingInsurance = 0;
-            if (financialEvents?.AdjustmentEventList) {
-                for (const adjustment of financialEvents.AdjustmentEventList) {
-                    const adjustmentType = adjustment.AdjustmentType || "";
-                    const adjustmentAmount = parseFloat(
-                        adjustment.AdjustmentAmount?.CurrencyAmount || "0"
-                    );
-                    
-                    // Capture postage (base shipping cost)
-                    if (adjustmentType === "PostageBilling_Postage") {
-                        // Amazon uses negative for debits, so convert to positive cost
-                        rawTotalOrderShipping += Math.abs(adjustmentAmount);
-                        shippingAdjustments.push({
-                            type: adjustmentType,
-                            amount: adjustmentAmount, // Keep original for logging
-                        });
-                    }
-                    // Capture shipping insurance
-                    else if (
-                        adjustmentType === "PostageBilling_Insurance" ||
-                        adjustmentType === "PostageBilling_ShippingInsurance" ||
-                        adjustmentType.includes("Insurance")
-                    ) {
-                        // Amazon uses negative for debits, so convert to positive cost
-                        shippingInsurance += Math.abs(adjustmentAmount);
-                        shippingAdjustments.push({
-                            type: adjustmentType,
-                            amount: adjustmentAmount, // Keep original for logging
-                        });
-                    }
-                    // Capture any other postage-related adjustments
-                    else if (adjustmentType.startsWith("PostageBilling_")) {
-                        shippingAdjustments.push({
-                            type: adjustmentType,
-                            amount: adjustmentAmount,
-                        });
+            
+            if (isFBA) {
+                // For FBA orders, use FBA fulfillment fees as shipping cost
+                rawTotalOrderShipping = totalFBAFees;
+                shippingInsurance = 0; // FBA doesn't have separate insurance
+            } else {
+                // For FBM orders, extract shipping from AdjustmentEventList
+                if (financialEvents?.AdjustmentEventList) {
+                    for (const adjustment of financialEvents.AdjustmentEventList) {
+                        const adjustmentType = adjustment.AdjustmentType || "";
+                        const adjustmentAmount = parseFloat(
+                            adjustment.AdjustmentAmount?.CurrencyAmount || "0"
+                        );
+                        
+                        // Capture postage (base shipping cost)
+                        if (adjustmentType === "PostageBilling_Postage") {
+                            // Amazon uses negative for debits, so convert to positive cost
+                            rawTotalOrderShipping += Math.abs(adjustmentAmount);
+                            shippingAdjustments.push({
+                                type: adjustmentType,
+                                amount: adjustmentAmount, // Keep original for logging
+                            });
+                        }
+                        // Capture shipping insurance
+                        else if (
+                            adjustmentType === "PostageBilling_Insurance" ||
+                            adjustmentType === "PostageBilling_ShippingInsurance" ||
+                            adjustmentType.includes("Insurance")
+                        ) {
+                            // Amazon uses negative for debits, so convert to positive cost
+                            shippingInsurance += Math.abs(adjustmentAmount);
+                            shippingAdjustments.push({
+                                type: adjustmentType,
+                                amount: adjustmentAmount, // Keep original for logging
+                            });
+                        }
+                        // Capture any other postage-related adjustments
+                        else if (adjustmentType.startsWith("PostageBilling_")) {
+                            shippingAdjustments.push({
+                                type: adjustmentType,
+                                amount: adjustmentAmount,
+                            });
+                        }
                     }
                 }
             }
@@ -333,8 +404,9 @@ export const processAmazonOrder = internalAction({
             // After converting negative debits to positive, totalShippingWithInsurance should always be >= 0
             const totalOrderShipping = totalShippingWithInsurance;
             
-            // Split shipping evenly across all units
-            const shippingPerUnit =
+            // For FBM orders, split shipping evenly across all units
+            // For FBA orders, we'll calculate per-item shipping in the loop below
+            const defaultShippingPerUnit =
                 totalQuantity > 0 ? totalOrderShipping / totalQuantity : 0;
 
             // Split buyer paid shipping evenly across all units (using same shippingPercentage)
@@ -377,8 +449,23 @@ export const processAmazonOrder = internalAction({
                                         item.SellerSKU
                                     ) {
                                         // Sum all item fees (Amazon fees, not customer charges)
+                                        // For FBA orders, exclude FBA fulfillment fees (they go in shipping instead)
                                         if (shipmentItem.ItemFeeList) {
                                             for (const fee of shipmentItem.ItemFeeList) {
+                                                const feeType = fee.FeeType || fee.FeeName || "Item Fee";
+                                                const feeTypeUpper = feeType.toUpperCase();
+                                                
+                                                // Skip FBA-related fees for FBA orders (they're counted as shipping)
+                                                if (isFBA && (
+                                                    feeTypeUpper.includes("FBA") || 
+                                                    feeTypeUpper.includes("FULFILLMENT") ||
+                                                    feeTypeUpper.includes("WEIGHT") ||
+                                                    feeTypeUpper.includes("PICK") ||
+                                                    feeTypeUpper.includes("PACK")
+                                                )) {
+                                                    continue;
+                                                }
+                                                
                                                 const feeAmount = Math.abs(
                                                     parseFloat(
                                                         fee.FeeAmount
@@ -387,7 +474,6 @@ export const processAmazonOrder = internalAction({
                                                     )
                                                 );
                                                 actualFees += feeAmount;
-                                                const feeType = fee.FeeType || fee.FeeName || "Item Fee";
                                                 feesBreakdown.push([feeType, feeAmount]);
                                             }
                                         }
@@ -396,15 +482,26 @@ export const processAmazonOrder = internalAction({
                             }
 
                             // Get order-level fees from OrderFeeList
+                            // For FBA orders, exclude FBA fulfillment fees (they go in shipping instead)
                             if (shipmentEvent.OrderFeeList) {
                                 for (const fee of shipmentEvent.OrderFeeList) {
+                                    const feeType = fee.FeeType || fee.FeeName || "Order Fee";
+                                    const feeTypeUpper = feeType.toUpperCase();
+                                    
+                                    // Skip FBA-related fees for FBA orders (they're counted as shipping)
+                                    if (isFBA && (
+                                        feeTypeUpper.includes("FBA") || 
+                                        feeTypeUpper.includes("FULFILLMENT")
+                                    )) {
+                                        continue;
+                                    }
+                                    
                                     const feeAmount = Math.abs(
                                         parseFloat(
                                             fee.FeeAmount?.CurrencyAmount || "0"
                                         )
                                     );
                                     actualFees += feeAmount;
-                                    const feeType = fee.FeeType || fee.FeeName || "Order Fee";
                                     feesBreakdown.push([feeType, feeAmount]);
                                 }
                             }
@@ -427,17 +524,40 @@ export const processAmazonOrder = internalAction({
                     amount / quantity,
                 ]);
 
-                // Create shipping breakdown (base shipping + insurance)
-                const shippingBreakdown: Array<[string, number]> = [];
-                const baseShippingPerUnit = (rawTotalOrderShipping / totalQuantity);
-                const insurancePerUnit = (shippingInsurance / totalQuantity);
+                // Calculate shipping per unit for this item
+                let shippingPerUnit = defaultShippingPerUnit;
                 
-                if (baseShippingPerUnit > 0 || insurancePerUnit > 0) {
-                    if (baseShippingPerUnit > 0) {
-                        shippingBreakdown.push(["Base Shipping", baseShippingPerUnit]);
+                if (isFBA) {
+                    // For FBA orders, use item-specific FBA fees per unit
+                    const itemFBAFees = fbaFeesBySKU[item.SellerSKU] || 0;
+                    if (itemFBAFees > 0 && quantity > 0) {
+                        shippingPerUnit = itemFBAFees / quantity;
+                    } else if (totalFBAFees > 0 && totalQuantity > 0) {
+                        // Fallback: split total FBA fees proportionally if item-specific fees not found
+                        shippingPerUnit = totalFBAFees / totalQuantity;
                     }
-                    if (insurancePerUnit > 0) {
-                        shippingBreakdown.push(["Shipping Insurance", insurancePerUnit]);
+                }
+                
+                // Create shipping breakdown based on fulfillment channel
+                const shippingBreakdown: Array<[string, number]> = [];
+                
+                if (isFBA) {
+                    // For FBA orders, show FBA Logistics breakdown
+                    if (shippingPerUnit > 0) {
+                        shippingBreakdown.push(["FBA Logistics", shippingPerUnit]);
+                    }
+                } else {
+                    // For FBM orders, use existing breakdown (base shipping + insurance)
+                    const baseShippingPerUnit = (rawTotalOrderShipping / totalQuantity);
+                    const insurancePerUnit = (shippingInsurance / totalQuantity);
+                    
+                    if (baseShippingPerUnit > 0 || insurancePerUnit > 0) {
+                        if (baseShippingPerUnit > 0) {
+                            shippingBreakdown.push(["Base Shipping", baseShippingPerUnit]);
+                        }
+                        if (insurancePerUnit > 0) {
+                            shippingBreakdown.push(["Shipping Insurance", insurancePerUnit]);
+                        }
                     }
                 }
 
@@ -445,9 +565,12 @@ export const processAmazonOrder = internalAction({
 
                 // Calculate shipping percentage (what % of total order shipping this unit represents)
                 // Only show percentage if shipping is split across multiple items (not 100%)
+                const averageShippingPerUnit = totalOrderShipping > 0 && totalQuantity > 0 
+                    ? totalOrderShipping / totalQuantity 
+                    : 0;
                 const shippingPercentage =
-                    totalOrderShipping > 0 && totalQuantity > 1
-                        ? (shippingPerUnit / totalOrderShipping) * 100
+                    averageShippingPerUnit > 0 && totalQuantity > 1
+                        ? (shippingPerUnit / averageShippingPerUnit) * 100
                         : totalQuantity === 1 ? 100 : undefined;
 
                 // Store item data in log before processing
