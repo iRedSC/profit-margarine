@@ -63,22 +63,75 @@ export const processAmazonOrder = internalAction({
     },
     handler: async (ctx, args) => {
         const log: {
+            operation: string;
             orderId: string;
-            steps: string[];
-            errors: Array<{ step: string; error: string }>;
+            userId: string;
+            updateExisting: boolean;
+            timestamp: string;
+            orderData?: {
+                orderStatus?: string;
+                purchaseDate?: string;
+                orderTimestamp?: number;
+                orderExists?: boolean;
+            };
+            shippingData?: {
+                rawShippingCost: number;
+                shippingInsurance: number;
+                totalShippingWithInsurance: number;
+                adjustedShippingCost: number;
+                buyerPaidShipping: number;
+                shippingAdjustments?: Array<{ type: string; amount: number }>;
+                wasNegative: boolean;
+            };
+            fulfillmentData?: {
+                fulfillmentTimestamp?: number;
+                fulfillmentDate?: string;
+            };
+            rawFinancialEvents?: {
+                hasAdjustmentEventList: boolean;
+                adjustmentEventListLength: number;
+                hasShipmentEventList: boolean;
+                shipmentEventListLength: number;
+            } | null;
+            items?: Array<{
+                sku: string;
+                title: string;
+                quantity: number;
+                price: number;
+                pricePerUnit: number;
+                fees: number;
+                feesPerUnit: number;
+                feesBreakdown: Array<[string, number]>;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+            }>;
+            summary: {
+                totalItems: number;
+                totalQuantity: number;
+                itemsProcessed: number;
+                itemsCreated: number;
+            };
+            errors: Array<{ step: string; error: string; timestamp: string }>;
             skipped: boolean;
-            itemsProcessed: number;
+            skippedReason?: string;
         } = {
+            operation: "process_amazon_order",
             orderId: args.orderId,
-            steps: [],
+            userId: args.userId,
+            updateExisting: args.updateExisting ?? false,
+            timestamp: new Date().toISOString(),
+            summary: {
+                totalItems: 0,
+                totalQuantity: 0,
+                itemsProcessed: 0,
+                itemsCreated: 0,
+            },
             errors: [],
             skipped: false,
-            itemsProcessed: 0,
         };
 
         try {
             const spApi = getSellingPartnerAPI();
-            log.steps.push("Initialized Amazon SP-API client");
 
             // First, get the order details to get the timestamp
             const orderResponse = await spApi.callAPI({
@@ -88,11 +141,25 @@ export const processAmazonOrder = internalAction({
                     orderId: args.orderId,
                 },
             });
-            log.steps.push("Fetched order details");
 
             const orderTimestamp = new Date(
                 orderResponse.PurchaseDate
             ).getTime();
+
+            // Check if order is cancelled
+            const orderStatus = orderResponse.OrderStatus;
+            log.orderData = {
+                orderStatus: orderStatus,
+                purchaseDate: orderResponse.PurchaseDate,
+                orderTimestamp: orderTimestamp,
+            };
+
+            if (orderStatus === "Canceled" || orderStatus === "Cancelled") {
+                log.skipped = true;
+                log.skippedReason = "Order is cancelled";
+                console.error(JSON.stringify(log));
+                return { success: true, itemsProcessed: 0, skipped: true };
+            }
 
             // Check if order already exists (by orderId and orderDate)
             const orderExists = await ctx.runQuery(
@@ -104,9 +171,11 @@ export const processAmazonOrder = internalAction({
                 }
             );
 
+            log.orderData.orderExists = orderExists;
+
             if (orderExists && !args.updateExisting) {
                 log.skipped = true;
-                log.steps.push("Order already exists, skipped");
+                log.skippedReason = "Order already exists";
                 console.error(JSON.stringify(log));
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
@@ -118,12 +187,12 @@ export const processAmazonOrder = internalAction({
                     orderId: args.orderId,
                 },
             });
-            log.steps.push("Fetched order items");
 
             const orderItems = orderItemsResponse.OrderItems || [];
+            log.summary.totalItems = orderItems.length;
 
             // Calculate total shipping cost for the order to split across items
-            let totalOrderShipping = 0;
+            let rawTotalOrderShipping = 0;
 
             // Calculate total buyer paid shipping from order items
             let totalBuyerPaidShipping = 0;
@@ -136,6 +205,7 @@ export const processAmazonOrder = internalAction({
 
             // Get financial events for this order to get actual fees and shipping costs
             let financialEvents = null;
+            const shippingAdjustments: Array<{ type: string; amount: number }> = [];
             try {
                 const financialResponse = await spApi.callAPI({
                     operation: "listFinancialEventsByOrderId",
@@ -145,33 +215,84 @@ export const processAmazonOrder = internalAction({
                     },
                 });
                 financialEvents = financialResponse.FinancialEvents;
-                log.steps.push("Fetched financial events");
             } catch (error: any) {
                 log.errors.push({
                     step: "fetch_financial_events",
                     error: error.message || String(error),
+                    timestamp: new Date().toISOString(),
                 });
             }
 
             // Calculate total shipping from AdjustmentEventList
+            // Note: Amazon uses negative values to represent debits (costs)
+            // We need to convert negative values to positive for our cost calculations
+            let shippingInsurance = 0;
             if (financialEvents?.AdjustmentEventList) {
                 for (const adjustment of financialEvents.AdjustmentEventList) {
-                    if (
-                        adjustment.AdjustmentType === "PostageBilling_Postage"
+                    const adjustmentType = adjustment.AdjustmentType || "";
+                    const adjustmentAmount = parseFloat(
+                        adjustment.AdjustmentAmount?.CurrencyAmount || "0"
+                    );
+                    
+                    // Capture postage (base shipping cost)
+                    if (adjustmentType === "PostageBilling_Postage") {
+                        // Amazon uses negative for debits, so convert to positive cost
+                        rawTotalOrderShipping += Math.abs(adjustmentAmount);
+                        shippingAdjustments.push({
+                            type: adjustmentType,
+                            amount: adjustmentAmount, // Keep original for logging
+                        });
+                    }
+                    // Capture shipping insurance
+                    else if (
+                        adjustmentType === "PostageBilling_Insurance" ||
+                        adjustmentType === "PostageBilling_ShippingInsurance" ||
+                        adjustmentType.includes("Insurance")
                     ) {
-                        totalOrderShipping += Math.abs(
-                            parseFloat(
-                                adjustment.AdjustmentAmount?.CurrencyAmount ||
-                                    "0"
-                            )
-                        );
+                        // Amazon uses negative for debits, so convert to positive cost
+                        shippingInsurance += Math.abs(adjustmentAmount);
+                        shippingAdjustments.push({
+                            type: adjustmentType,
+                            amount: adjustmentAmount, // Keep original for logging
+                        });
+                    }
+                    // Capture any other postage-related adjustments
+                    else if (adjustmentType.startsWith("PostageBilling_")) {
+                        shippingAdjustments.push({
+                            type: adjustmentType,
+                            amount: adjustmentAmount,
+                        });
                     }
                 }
             }
-            log.steps.push("Calculated shipping costs");
+            
+            // Calculate total shipping including insurance (now both are positive)
+            const totalShippingWithInsurance = rawTotalOrderShipping + shippingInsurance;
+            
+            // Log raw financial events for debugging
+            log.rawFinancialEvents = financialEvents ? {
+                hasAdjustmentEventList: !!financialEvents.AdjustmentEventList,
+                adjustmentEventListLength: financialEvents.AdjustmentEventList?.length || 0,
+                hasShipmentEventList: !!financialEvents.ShipmentEventList,
+                shipmentEventListLength: financialEvents.ShipmentEventList?.length || 0,
+            } : null;
+            
+            log.shippingData = {
+                rawShippingCost: rawTotalOrderShipping,
+                shippingInsurance: shippingInsurance,
+                totalShippingWithInsurance: totalShippingWithInsurance,
+                adjustedShippingCost: totalShippingWithInsurance,
+                buyerPaidShipping: totalBuyerPaidShipping,
+                shippingAdjustments: shippingAdjustments.length > 0 ? shippingAdjustments : undefined,
+                wasNegative: false, // After converting negative debits to positive, this is always false
+            };
 
             // Extract fulfillment date from ShipmentEventList
+            // Note: Amazon's financial events don't reliably expose shipment cancellation status
+            // We rely on negative adjustments (reversals) to detect cancelled shipping charges
             let fulfillmentTimestamp: number | undefined = undefined;
+            let fulfillmentDate: string | undefined = undefined;
+            
             if (financialEvents?.ShipmentEventList) {
                 for (const shipmentEvent of financialEvents.ShipmentEventList) {
                     if (shipmentEvent.AmazonOrderId === args.orderId) {
@@ -185,13 +306,18 @@ export const processAmazonOrder = internalAction({
                             // Use the earliest shipment date if multiple shipments exist
                             if (!fulfillmentTimestamp || parsedDate < fulfillmentTimestamp) {
                                 fulfillmentTimestamp = parsedDate;
+                                fulfillmentDate = dateToUse;
                             }
                         }
                     }
                 }
-                if (fulfillmentTimestamp) {
-                    log.steps.push(`Extracted fulfillment date from shipment events`);
-                }
+            }
+            
+            if (fulfillmentTimestamp) {
+                log.fulfillmentData = {
+                    fulfillmentTimestamp: fulfillmentTimestamp,
+                    fulfillmentDate: fulfillmentDate,
+                };
             }
 
             // Calculate total quantity across all items
@@ -201,7 +327,12 @@ export const processAmazonOrder = internalAction({
                 },
                 0
             );
+            log.summary.totalQuantity = totalQuantity;
 
+            // Use total shipping including insurance for calculations
+            // After converting negative debits to positive, totalShippingWithInsurance should always be >= 0
+            const totalOrderShipping = totalShippingWithInsurance;
+            
             // Split shipping evenly across all units
             const shippingPerUnit =
                 totalQuantity > 0 ? totalOrderShipping / totalQuantity : 0;
@@ -210,6 +341,19 @@ export const processAmazonOrder = internalAction({
             const buyerPaidShippingPerUnit =
                 totalQuantity > 0 ? totalBuyerPaidShipping / totalQuantity : 0;
 
+            const logItems: Array<{
+                sku: string;
+                title: string;
+                quantity: number;
+                price: number;
+                pricePerUnit: number;
+                fees: number;
+                feesPerUnit: number;
+                feesBreakdown: Array<[string, number]>;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+            }> = [];
+            
             let itemsCreated = 0;
             for (const item of orderItems) {
                 const price = parseFloat(item.ItemPrice?.Amount || "0");
@@ -283,26 +427,57 @@ export const processAmazonOrder = internalAction({
                     amount / quantity,
                 ]);
 
+                // Create shipping breakdown (base shipping + insurance)
+                const shippingBreakdown: Array<[string, number]> = [];
+                const baseShippingPerUnit = (rawTotalOrderShipping / totalQuantity);
+                const insurancePerUnit = (shippingInsurance / totalQuantity);
+                
+                if (baseShippingPerUnit > 0 || insurancePerUnit > 0) {
+                    if (baseShippingPerUnit > 0) {
+                        shippingBreakdown.push(["Base Shipping", baseShippingPerUnit]);
+                    }
+                    if (insurancePerUnit > 0) {
+                        shippingBreakdown.push(["Shipping Insurance", insurancePerUnit]);
+                    }
+                }
+
                 // Don't update message here - let the main sync loop handle it
 
                 // Calculate shipping percentage (what % of total order shipping this unit represents)
+                // Only show percentage if shipping is split across multiple items (not 100%)
                 const shippingPercentage =
-                    totalOrderShipping > 0
+                    totalOrderShipping > 0 && totalQuantity > 1
                         ? (shippingPerUnit / totalOrderShipping) * 100
-                        : 0;
+                        : totalQuantity === 1 ? 100 : undefined;
+
+                // Store item data in log before processing
+                logItems.push({
+                    sku: item.SellerSKU,
+                    title: item.Title,
+                    quantity: quantity,
+                    price: price,
+                    pricePerUnit: pricePerUnit,
+                    fees: actualFees,
+                    feesPerUnit: feesPerUnit,
+                    feesBreakdown: feesBreakdown,
+                    shippingPerUnit: shippingPerUnit,
+                    buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
+                });
 
                 // Create a marketplace product for each quantity
                 for (let i = 0; i < quantity; i++) {
                     await ctx.runMutation(
-                        internal.products.upsertProductFromAmazon,
+                        internal.products.upsertMarketplaceProduct,
                         {
                             userId: args.userId,
+                            marketplace: "Amazon",
                             sku: item.SellerSKU,
                             name: item.Title,
                             price: pricePerUnit,
                             fees: feesPerUnit,
                             fees_breakdown: feesBreakdownPerUnit,
                             shipping: shippingPerUnit,
+                            shipping_breakdown: shippingBreakdown.length > 0 ? shippingBreakdown : undefined,
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,
                             orderTimestamp,
@@ -312,17 +487,19 @@ export const processAmazonOrder = internalAction({
                             updateExisting: args.updateExisting ?? false,
                         }
                     );
-                    log.itemsProcessed++;
+                    log.summary.itemsCreated++;
                 }
+                log.summary.itemsProcessed++;
             }
 
-            log.steps.push(`Created ${log.itemsProcessed} product records`);
+            log.items = logItems;
             console.error(JSON.stringify(log));
             return { success: true, itemsProcessed: orderItems.length };
         } catch (error: any) {
             log.errors.push({
                 step: "process_order",
                 error: error.message || String(error),
+                timestamp: new Date().toISOString(),
             });
             console.error(JSON.stringify(log));
             throw error;

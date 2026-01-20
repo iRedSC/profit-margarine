@@ -27,6 +27,11 @@ export const syncShopifyOrders = mutation({
     },
 });
 
+/**
+ * @deprecated Use products.upsertMarketplaceProduct instead
+ * Kept for backward compatibility during migration
+ * Note: This now calls the shared handler function directly
+ */
 export const upsertProductFromShopify = internalMutation({
     args: {
         userId: v.id("users"),
@@ -36,6 +41,7 @@ export const upsertProductFromShopify = internalMutation({
         fees: v.number(),
         fees_breakdown: v.optional(v.array(v.array(v.union(v.string(), v.number())))),
         shipping: v.number(),
+        shipping_breakdown: v.optional(v.array(v.array(v.union(v.string(), v.number())))),
         shippingPercentage: v.optional(v.number()),
         buyerPaidShipping: v.optional(v.number()),
         orderTimestamp: v.number(),
@@ -45,101 +51,52 @@ export const upsertProductFromShopify = internalMutation({
         updateExisting: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
-        // Skip orders with 0 shipping cost (not yet shipped)
-        if (args.shipping === 0) {
-            return;
-        }
-
-        const existingProduct = await ctx.db
-            .query("products")
-            .withIndex("by_user_and_sku", (q) =>
-                q.eq("userId", args.userId).eq("sku", args.sku)
-            )
-            .first();
-
-        let productId: Id<"products">;
-
-        if (existingProduct) {
-            productId = existingProduct._id;
-            await ctx.db.patch(productId, {
-                name: args.name,
-            });
-        } else {
-            productId = await ctx.db.insert("products", {
-                sku: args.sku,
-                name: args.name,
-                userId: args.userId,
-            });
-        }
-
-        // Check if marketplace product already exists for this order, date, and SKU
-        if (args.updateExisting && args.orderId) {
-            const existingMarketplaceProducts = await ctx.db
-                .query("marketplaceProducts")
-                .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
-                .filter((q) =>
-                    q.and(
-                        q.eq(q.field("userId"), args.userId),
-                        q.eq(q.field("orderDate"), args.orderTimestamp),
-                        q.eq(q.field("sku"), args.sku),
-                        q.eq(q.field("marketplace"), "Shopify")
-                    )
-                )
-                .collect();
-
-            if (existingMarketplaceProducts.length > 0) {
-                // Update all matching marketplace products (not just the first one)
-                // This ensures all items/units in an order get their fulfillment dates updated
-                for (const existingMp of existingMarketplaceProducts) {
-                    await ctx.db.patch(existingMp._id, {
-                        productId,
-                        price: args.price,
-                        cost: existingProduct?.cost,
-                        fees: args.fees,
-                        fees_breakdown: args.fees_breakdown,
-                        shipping: args.shipping,
-                        shippingPercentage: args.shippingPercentage,
-                        buyerPaidShipping: args.buyerPaidShipping,
-                        fulfillmentDate: args.fulfillmentTimestamp,
-                        OrderId: args.OrderId,
-                        name: args.name,
-                    });
-                }
-                return;
-            }
-        }
-
-        // Insert new marketplace product
-        await ctx.db.insert("marketplaceProducts", {
-            productId,
+        // Import the handler function - note: this requires the handler to be exported
+        // For now, we'll use the internal API call which works from mutations
+        await ctx.runMutation(internal.products.upsertMarketplaceProduct, {
+            userId: args.userId,
             marketplace: "Shopify",
+            sku: args.sku,
+            name: args.name,
             price: args.price,
-            cost: existingProduct?.cost,
             fees: args.fees,
             fees_breakdown: args.fees_breakdown,
             shipping: args.shipping,
+            shipping_breakdown: args.shipping_breakdown,
             shippingPercentage: args.shippingPercentage,
             buyerPaidShipping: args.buyerPaidShipping,
-            orderDate: args.orderTimestamp,
-            fulfillmentDate: args.fulfillmentTimestamp,
-            userId: args.userId,
+            orderTimestamp: args.orderTimestamp,
+            fulfillmentTimestamp: args.fulfillmentTimestamp,
             orderId: args.orderId,
             OrderId: args.OrderId,
-            sku: args.sku,
-            name: args.name,
+            updateExisting: args.updateExisting,
         });
     },
 });
 
+/**
+ * Store Shopify connection using unified marketplaceConnections table
+ * Also maintains legacy shopifyConnections table for backward compatibility
+ */
 export const storeShopifyConnection = internalMutation({
     args: {
         shop: v.string(),
         accessToken: v.string(),
         scope: v.string(),
+        userId: v.optional(v.id("users")),
     },
     handler: async (ctx, args) => {
-        // For now, we'll store this globally
-        // In a multi-user app, you'd associate this with a specific user
+        // Store in unified marketplaceConnections if userId is provided
+        if (args.userId) {
+            await ctx.runMutation(internal.marketplaceConnections.storeMarketplaceConnection, {
+                userId: args.userId,
+                marketplace: "shopify",
+                accessToken: args.accessToken,
+                shopDomain: args.shop,
+            });
+        }
+
+        // Also maintain legacy shopifyConnections table for backward compatibility
         const existing = await ctx.db
             .query("shopifyConnections")
             .withIndex("by_shop", (q) => q.eq("shop", args.shop))
@@ -163,24 +120,46 @@ export const storeShopifyConnection = internalMutation({
     },
 });
 
+/**
+ * Get Shopify connection using unified marketplaceConnections system
+ * Falls back to legacy shopifyConnections table for backward compatibility
+ */
 export const getShopifyConnection = internalQuery({
     args: {
         userId: v.id("users"),
     },
-    handler: async (ctx, _args) => {
-        const connection = await ctx.db.query("shopifyConnections").first();
+    handler: async (ctx, args) => {
+        // Try unified marketplaceConnections first
+        const connection = await ctx.db
+            .query("marketplaceConnections")
+            .withIndex("by_user_and_marketplace", (q) =>
+                q.eq("userId", args.userId).eq("marketplace", "shopify")
+            )
+            .first();
 
-        if (!connection) {
-            return null;
+        if (connection) {
+            return {
+                shop: connection.shopDomain || "",
+                accessToken: connection.accessToken,
+            };
         }
 
-        return {
-            shop: connection.shop,
-            accessToken: connection.accessToken,
-        };
+        // Fallback to legacy shopifyConnections table
+        const legacyConnection = await ctx.db.query("shopifyConnections").first();
+        if (legacyConnection) {
+            return {
+                shop: legacyConnection.shop,
+                accessToken: legacyConnection.accessToken,
+            };
+        }
+
+        return null;
     },
 });
 
+/**
+ * Check if Shopify is connected using unified marketplaceConnections system
+ */
 export const isShopifyConnected = query({
     args: {},
     handler: async (ctx) => {
@@ -189,11 +168,27 @@ export const isShopifyConnected = query({
             return false;
         }
 
-        const connection = await ctx.db.query("shopifyConnections").first();
-        return connection !== null;
+        // Try unified marketplaceConnections first
+        const connection = await ctx.db
+            .query("marketplaceConnections")
+            .withIndex("by_user_and_marketplace", (q) =>
+                q.eq("userId", userId).eq("marketplace", "shopify")
+            )
+            .first();
+
+        if (connection) {
+            return true;
+        }
+
+        // Fallback to legacy shopifyConnections table
+        const legacyConnection = await ctx.db.query("shopifyConnections").first();
+        return legacyConnection !== null;
     },
 });
 
+/**
+ * Get Shopify domain using unified marketplaceConnections system
+ */
 export const getShopDomain = query({
     args: {},
     handler: async (ctx) => {
@@ -202,7 +197,20 @@ export const getShopDomain = query({
             return null;
         }
 
-        const connection = await ctx.db.query("shopifyConnections").first();
-        return connection?.shop || null;
+        // Try unified marketplaceConnections first
+        const connection = await ctx.db
+            .query("marketplaceConnections")
+            .withIndex("by_user_and_marketplace", (q) =>
+                q.eq("userId", userId).eq("marketplace", "shopify")
+            )
+            .first();
+
+        if (connection?.shopDomain) {
+            return connection.shopDomain;
+        }
+
+        // Fallback to legacy shopifyConnections table
+        const legacyConnection = await ctx.db.query("shopifyConnections").first();
+        return legacyConnection?.shop || null;
     },
 });

@@ -194,13 +194,56 @@ export const getShippingCostForOrder = internalAction({
 
         // Sum up all shipping costs for this order
         let totalShipping = 0;
+        let totalInsurance = 0;
+        
         for (const transaction of shippingTransactions) {
-            totalShipping += Math.abs(
+            const shippingAmount = Math.abs(
                 parseFloat(transaction.amount?.value || "0")
             );
+            totalShipping += shippingAmount;
+            
+            // Check for insurance in transaction fees array
+            if (transaction.fees && Array.isArray(transaction.fees)) {
+                for (const fee of transaction.fees) {
+                    const feeType = (fee.feeType || "").toUpperCase();
+                    if (
+                        feeType.includes("INSURANCE") ||
+                        feeType.includes("SHIPCOVER") ||
+                        feeType.includes("COVERAGE")
+                    ) {
+                        const insuranceAmount = Math.abs(
+                            parseFloat(fee.amount?.value || "0")
+                        );
+                        totalInsurance += insuranceAmount;
+                    }
+                }
+            }
+            
+            // Check for insurance in additional fields (if API provides them)
+            if (transaction.insuranceAmount) {
+                const insuranceAmount = Math.abs(
+                    parseFloat(transaction.insuranceAmount?.value || "0")
+                );
+                totalInsurance += insuranceAmount;
+            }
+        }
+        
+        // Check for separate insurance transactions
+        for (const transaction of transactions) {
+            const transactionType = (transaction.transactionType || "").toUpperCase();
+            if (
+                transactionType === "SHIPPING_INSURANCE" ||
+                transactionType === "INSURANCE" ||
+                transactionType.includes("INSURANCE")
+            ) {
+                const insuranceAmount = Math.abs(
+                    parseFloat(transaction.amount?.value || "0")
+                );
+                totalInsurance += insuranceAmount;
+            }
         }
 
-        return totalShipping;
+        return { shipping: totalShipping, insurance: totalInsurance };
     },
 });
 
@@ -511,17 +554,72 @@ export const processEbayOrder = internalAction({
     },
     handler: async (ctx, args) => {
         const log: {
+            operation: string;
             orderId: string;
-            steps: string[];
-            errors: Array<{ step: string; error: string }>;
+            userId: string;
+            updateExisting: boolean;
+            timestamp: string;
+            environment: string;
+            orderData?: {
+                orderDate?: string;
+                orderTimestamp?: number;
+                orderExists?: boolean;
+                lineItemsCount?: number;
+            };
+            shippingData?: {
+                rawShippingCost: number;
+                shippingInsurance: number;
+                totalShippingWithInsurance: number;
+                buyerPaidShipping: number;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+            };
+            fulfillmentData?: {
+                fulfillmentTimestamp?: number;
+                fulfillmentDate?: string;
+            };
+            feesData?: {
+                totalFees: number;
+                orderLevelFees: number;
+                feesByLineItem?: Record<string, number>;
+            };
+            items?: Array<{
+                lineItemId: string;
+                sku: string;
+                title: string;
+                quantity: number;
+                price: number;
+                pricePerUnit: number;
+                fees: number;
+                feesPerUnit: number;
+                feesBreakdown: Array<[string, number]>;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+            }>;
+            summary: {
+                totalItems: number;
+                totalQuantity: number;
+                itemsProcessed: number;
+                itemsCreated: number;
+            };
+            errors: Array<{ step: string; error: string; timestamp: string }>;
             skipped: boolean;
-            itemsProcessed: number;
+            skippedReason?: string;
         } = {
+            operation: "process_ebay_order",
             orderId: args.orderId,
-            steps: [],
+            userId: args.userId,
+            updateExisting: args.updateExisting ?? false,
+            timestamp: new Date().toISOString(),
+            environment: process.env.EBAY_SANDBOX === "true" ? "sandbox" : "production",
+            summary: {
+                totalItems: 0,
+                totalQuantity: 0,
+                itemsProcessed: 0,
+                itemsCreated: 0,
+            },
             errors: [],
             skipped: false,
-            itemsProcessed: 0,
         };
 
         try {
@@ -530,9 +628,6 @@ export const processEbayOrder = internalAction({
                 ? "https://api.sandbox.ebay.com"
                 : "https://api.ebay.com";
             const orderUrl = `${baseUrl}/sell/fulfillment/v1/order/${args.orderId}`;
-            log.steps.push(
-                `Fetching order from ${isSandbox ? "sandbox" : "production"} API`
-            );
 
             const orderResponse = await fetch(orderUrl, {
                 headers: {
@@ -549,10 +644,18 @@ export const processEbayOrder = internalAction({
 
             const orderData = await orderResponse.json();
             const lineItems = orderData.lineItems || [];
-            log.steps.push(`Fetched order with ${lineItems.length} line items`);
+            
+            const orderTimestamp = new Date(orderData.creationDate || Date.now()).getTime();
+            log.orderData = {
+                orderDate: orderData.creationDate,
+                orderTimestamp: orderTimestamp,
+                lineItemsCount: lineItems.length,
+            };
+            log.summary.totalItems = lineItems.length;
 
             // Fetch shipping fulfillments to get fulfillment date
             let fulfillmentTimestamp: number | undefined = undefined;
+            let fulfillmentDate: string | undefined = undefined;
             try {
                 const fulfillmentUrl = `${baseUrl}/sell/fulfillment/v1/order/${args.orderId}/shipping_fulfillment`;
                 const fulfillmentResponse = await fetch(fulfillmentUrl, {
@@ -577,18 +680,23 @@ export const processEbayOrder = internalAction({
                         
                         if (latestFulfillment?.shippedDate) {
                             fulfillmentTimestamp = new Date(latestFulfillment.shippedDate).getTime();
-                            log.steps.push(`Fetched fulfillment date: ${latestFulfillment.shippedDate}`);
+                            fulfillmentDate = latestFulfillment.shippedDate;
                         }
                     }
-                } else {
-                    log.steps.push(`Could not fetch fulfillments: ${fulfillmentResponse.status}`);
                 }
             } catch (error: any) {
                 log.errors.push({
                     step: "fetch_fulfillment_date",
                     error: error.message || String(error),
+                    timestamp: new Date().toISOString(),
                 });
-                log.steps.push(`Error fetching fulfillment date: ${error.message}`);
+            }
+            
+            if (fulfillmentTimestamp) {
+                log.fulfillmentData = {
+                    fulfillmentTimestamp: fulfillmentTimestamp,
+                    fulfillmentDate: fulfillmentDate,
+                };
             }
 
             // Log all transactions for this order for debugging (after helper function is defined)
@@ -603,6 +711,65 @@ export const processEbayOrder = internalAction({
                 orderData.pricingSummary?.deliveryDiscount?.value || "0"
             );
             const buyerPaidShippingTotal = deliveryCost - deliveryDiscount;
+            
+            // Extract shipping insurance from transactions
+            let shippingInsurance = 0;
+            for (const transaction of args.allTransactions) {
+                if (transactionBelongsToOrder(transaction)) {
+                    const transactionType = (transaction.transactionType || "").toUpperCase();
+                    
+                    // Check for separate insurance transaction
+                    if (
+                        transactionType === "SHIPPING_INSURANCE" ||
+                        transactionType === "INSURANCE" ||
+                        (transactionType.includes("INSURANCE") && transactionType !== "SHIPPING_LABEL")
+                    ) {
+                        const amount = Math.abs(
+                            parseFloat(transaction.amount?.value || "0")
+                        );
+                        shippingInsurance += amount;
+                    }
+                    
+                    // Check if SHIPPING_LABEL transaction has insurance in fees array
+                    if (transactionType === "SHIPPING_LABEL") {
+                        if (transaction.fees && Array.isArray(transaction.fees)) {
+                            for (const fee of transaction.fees) {
+                                const feeType = (fee.feeType || "").toUpperCase();
+                                if (
+                                    feeType.includes("INSURANCE") ||
+                                    feeType.includes("SHIPCOVER") ||
+                                    feeType.includes("COVERAGE")
+                                ) {
+                                    const insuranceAmount = Math.abs(
+                                        parseFloat(fee.amount?.value || "0")
+                                    );
+                                    shippingInsurance += insuranceAmount;
+                                }
+                            }
+                        }
+                        
+                        // Check for insurance in additional fields (if API provides them)
+                        if (transaction.insuranceAmount) {
+                            const insuranceAmount = Math.abs(
+                                parseFloat(transaction.insuranceAmount?.value || "0")
+                            );
+                            shippingInsurance += insuranceAmount;
+                        }
+                    }
+                }
+            }
+            
+            // Calculate total shipping including insurance
+            const totalShippingWithInsurance = args.shippingCost + shippingInsurance;
+            
+            log.shippingData = {
+                rawShippingCost: args.shippingCost,
+                shippingInsurance: shippingInsurance,
+                totalShippingWithInsurance: totalShippingWithInsurance,
+                buyerPaidShipping: buyerPaidShippingTotal,
+                shippingPerUnit: 0, // Will be calculated below
+                buyerPaidShippingPerUnit: 0, // Will be calculated below
+            };
 
             const feesByLineItemId: Record<string, number> = {};
             const feesBreakdownByLineItemId: Record<string, Array<[string, number]>> = {};
@@ -882,9 +1049,21 @@ export const processEbayOrder = internalAction({
                 }
             }
 
-            const orderTimestamp = new Date(
-                orderData.creationDate || Date.now()
-            ).getTime();
+            // Calculate total fees for logging (after totalOrderLevelFees is calculated and distributed)
+            let totalFees = 0;
+            const feesByLineItem: Record<string, number> = {};
+            for (const lineItem of lineItems) {
+                const lineItemId = lineItem.lineItemId;
+                const fees = feesByLineItemId[lineItemId] || 0;
+                feesByLineItem[lineItemId] = fees;
+                totalFees += fees;
+            }
+            
+            log.feesData = {
+                totalFees: totalFees,
+                orderLevelFees: totalOrderLevelFees,
+                feesByLineItem: feesByLineItem,
+            };
 
             // Check if order already exists (by orderId and orderDate)
             const orderExists = await ctx.runQuery(
@@ -896,9 +1075,13 @@ export const processEbayOrder = internalAction({
                 }
             );
 
+            if (log.orderData) {
+                log.orderData.orderExists = orderExists;
+            }
+
             if (orderExists && !args.updateExisting) {
                 log.skipped = true;
-                log.steps.push("Order already exists, skipped");
+                log.skippedReason = "Order already exists";
                 console.error(JSON.stringify(log));
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
@@ -914,26 +1097,44 @@ export const processEbayOrder = internalAction({
                         orderDate: orderTimestamp,
                     }
                 );
-                log.steps.push(
-                    "Deleted existing marketplace products for order to allow resync"
-                );
             }
-
-            log.steps.push("Calculated fees and shipping costs");
 
             // Calculate total quantity across all line items
             const totalQuantity = lineItems.reduce((sum: number, item: any) => {
                 return sum + parseInt(item.quantity || "1");
             }, 0);
+            log.summary.totalQuantity = totalQuantity;
+
+            // Use total shipping including insurance for calculations
+            const totalOrderShipping = totalShippingWithInsurance;
 
             // Split shipping evenly across all units
             const shippingPerUnit =
-                totalQuantity > 0 ? args.shippingCost / totalQuantity : 0;
+                totalQuantity > 0 ? totalOrderShipping / totalQuantity : 0;
 
             // Split buyer paid shipping evenly across all units (using same shippingPercentage)
             const buyerPaidShippingPerUnit =
                 totalQuantity > 0 ? buyerPaidShippingTotal / totalQuantity : 0;
+            
+            if (log.shippingData) {
+                log.shippingData.shippingPerUnit = shippingPerUnit;
+                log.shippingData.buyerPaidShippingPerUnit = buyerPaidShippingPerUnit;
+            }
 
+            const logItems: Array<{
+                lineItemId: string;
+                sku: string;
+                title: string;
+                quantity: number;
+                price: number;
+                pricePerUnit: number;
+                fees: number;
+                feesPerUnit: number;
+                feesBreakdown: Array<[string, number]>;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+            }> = [];
+            
             for (const lineItem of lineItems) {
                 const sku = lineItem.sku || lineItem.lineItemId;
                 const title = lineItem.title || "Unknown Item";
@@ -956,9 +1157,6 @@ export const processEbayOrder = internalAction({
                 if (fees === 0) {
                     fees = price * 0.1325;
                     feesBreakdown = [["Final Value Fee (Estimated)", fees]];
-                    log.steps.push(
-                        `No fees found for line item ${lineItemId}, using fallback estimate (13.25%)`
-                    );
                 }
 
                 // Validation: cap fees at 25% of price to prevent unreasonably high fees
@@ -972,9 +1170,6 @@ export const processEbayOrder = internalAction({
                         type,
                         amount * feeReductionRatio,
                     ]);
-                    log.steps.push(
-                        `Fees for line item ${lineItemId} (${fees.toFixed(2)}) exceed 25% of price (${price.toFixed(2)}), capping at ${maxReasonableFees.toFixed(2)}`
-                    );
                 }
 
                 const feesPerUnit = fees / quantity;
@@ -984,24 +1179,55 @@ export const processEbayOrder = internalAction({
                     amount / quantity,
                 ]);
 
+                // Create shipping breakdown (base shipping + insurance)
+                const shippingBreakdown: Array<[string, number]> = [];
+                const baseShippingPerUnit = (args.shippingCost / totalQuantity);
+                const insurancePerUnit = (shippingInsurance / totalQuantity);
+                
+                if (baseShippingPerUnit > 0 || insurancePerUnit > 0) {
+                    if (baseShippingPerUnit > 0) {
+                        shippingBreakdown.push(["Base Shipping", baseShippingPerUnit]);
+                    }
+                    if (insurancePerUnit > 0) {
+                        shippingBreakdown.push(["Shipping Insurance", insurancePerUnit]);
+                    }
+                }
+
                 // Calculate shipping percentage (what % of total order shipping this unit represents)
                 const shippingPercentage =
-                    args.shippingCost > 0
-                        ? (shippingPerUnit / args.shippingCost) * 100
+                    totalOrderShipping > 0
+                        ? (shippingPerUnit / totalOrderShipping) * 100
                         : 0;
+
+                // Store item data in log before processing
+                logItems.push({
+                    lineItemId: lineItemId,
+                    sku: sku,
+                    title: title,
+                    quantity: quantity,
+                    price: price,
+                    pricePerUnit: pricePerUnit,
+                    fees: fees,
+                    feesPerUnit: feesPerUnit,
+                    feesBreakdown: feesBreakdown,
+                    shippingPerUnit: shippingPerUnit,
+                    buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
+                });
 
                 // Create a marketplace product for each quantity
                 for (let i = 0; i < quantity; i++) {
                     await ctx.runMutation(
-                        internal.products.upsertProductFromEbay,
+                        internal.products.upsertMarketplaceProduct,
                         {
                             userId: args.userId,
+                            marketplace: "Ebay",
                             sku,
                             name: title,
                             price: pricePerUnit,
                             fees: feesPerUnit,
                             fees_breakdown: feesBreakdownPerUnit,
                             shipping: shippingPerUnit,
+                            shipping_breakdown: shippingBreakdown.length > 0 ? shippingBreakdown : undefined,
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,
                             orderTimestamp,
@@ -1011,17 +1237,19 @@ export const processEbayOrder = internalAction({
                             updateExisting: args.updateExisting ?? false,
                         }
                     );
-                    log.itemsProcessed++;
+                    log.summary.itemsCreated++;
                 }
+                log.summary.itemsProcessed++;
             }
 
-            log.steps.push(`Created ${log.itemsProcessed} product records`);
+            log.items = logItems;
             console.error(JSON.stringify(log));
             return { success: true, itemsProcessed: lineItems.length };
         } catch (error: any) {
             log.errors.push({
                 step: "process_order",
                 error: error.message || String(error),
+                timestamp: new Date().toISOString(),
             });
             console.error(JSON.stringify(log));
             throw error;

@@ -27,7 +27,7 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
     }));
 
     const productsWithCost = productsWithNetShipping.filter(
-        (p) => p.cost !== undefined
+        (p) => p.cost !== undefined && p.shipping !== 0
     );
     const totalGross = productsWithCost.reduce((sum, p) => sum + p.price, 0);
     const totalCost = productsWithCost.reduce(

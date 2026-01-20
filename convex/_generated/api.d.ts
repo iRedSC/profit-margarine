@@ -9,6 +9,9 @@
  */
 
 import type * as amazon from "../amazon.js";
+import type * as apiClients_amazonClient from "../apiClients/amazonClient.js";
+import type * as apiClients_ebayClient from "../apiClients/ebayClient.js";
+import type * as apiClients_shopifyClient from "../apiClients/shopifyClient.js";
 import type * as auth from "../auth.js";
 import type * as ebay from "../ebay.js";
 import type * as ebayMutations from "../ebayMutations.js";
@@ -18,7 +21,9 @@ import type * as ebayRoutes from "../ebayRoutes.js";
 import type * as http from "../http.js";
 import type * as importCosts from "../importCosts.js";
 import type * as marketplaceConnections from "../marketplaceConnections.js";
+import type * as marketplaceProcessors from "../marketplaceProcessors.js";
 import type * as marketplaceSync from "../marketplaceSync.js";
+import type * as marketplaceSyncBase from "../marketplaceSyncBase.js";
 import type * as marketplaceUtils from "../marketplaceUtils.js";
 import type * as productResync from "../productResync.js";
 import type * as products from "../products.js";
@@ -40,6 +45,9 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   amazon: typeof amazon;
+  "apiClients/amazonClient": typeof apiClients_amazonClient;
+  "apiClients/ebayClient": typeof apiClients_ebayClient;
+  "apiClients/shopifyClient": typeof apiClients_shopifyClient;
   auth: typeof auth;
   ebay: typeof ebay;
   ebayMutations: typeof ebayMutations;
@@ -49,7 +57,9 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   importCosts: typeof importCosts;
   marketplaceConnections: typeof marketplaceConnections;
+  marketplaceProcessors: typeof marketplaceProcessors;
   marketplaceSync: typeof marketplaceSync;
+  marketplaceSyncBase: typeof marketplaceSyncBase;
   marketplaceUtils: typeof marketplaceUtils;
   productResync: typeof productResync;
   products: typeof products;

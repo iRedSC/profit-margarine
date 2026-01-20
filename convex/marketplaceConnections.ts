@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "./_generated/api";
 
 export type MarketplaceType = "amazon" | "ebay" | "shopify" | "tiktok";
 
@@ -52,6 +53,7 @@ export const storeMarketplaceConnection = internalMutation({
 
 /**
  * Generic connection retrieval for marketplaceConnections table
+ * Also handles Shopify's legacy shopifyConnections table for backward compatibility
  */
 export const getMarketplaceConnection = internalQuery({
     args: {
@@ -59,6 +61,7 @@ export const getMarketplaceConnection = internalQuery({
         marketplace: v.union(v.literal("ebay"), v.literal("shopify"), v.literal("tiktok")),
     },
     handler: async (ctx, args) => {
+        // Try marketplaceConnections first
         const connection = await ctx.db
             .query("marketplaceConnections")
             .withIndex("by_user_and_marketplace", (q) =>
@@ -66,16 +69,30 @@ export const getMarketplaceConnection = internalQuery({
             )
             .first();
 
-        if (!connection) {
-            return null;
+        if (connection) {
+            return {
+                accessToken: connection.accessToken,
+                refreshToken: connection.refreshToken,
+                expiresAt: connection.expiresAt,
+                shopDomain: connection.shopDomain,
+            };
         }
 
-        return {
-            accessToken: connection.accessToken,
-            refreshToken: connection.refreshToken,
-            expiresAt: connection.expiresAt,
-            shopDomain: connection.shopDomain,
-        };
+        // Fallback to legacy shopifyConnections table for Shopify (backward compatibility)
+        // Note: Migration should be handled separately via a mutation, not in a query
+        if (args.marketplace === "shopify") {
+            const legacyConnection = await ctx.db.query("shopifyConnections").first();
+            if (legacyConnection) {
+                return {
+                    accessToken: legacyConnection.accessToken,
+                    refreshToken: undefined,
+                    expiresAt: undefined,
+                    shopDomain: legacyConnection.shop,
+                };
+            }
+        }
+
+        return null;
     },
 });
 

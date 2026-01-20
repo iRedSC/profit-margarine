@@ -3,7 +3,13 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { generateMonthlyBatches, updateSyncProgress, handleSyncError, processWithProgress, isSyncCanceled, validateSyncActive } from "./marketplaceUtils";
+import {
+    generateMonthlyBatches,
+    updateSyncProgress,
+    handleSyncError,
+    processWithProgress,
+    validateSyncActive,
+} from "./marketplaceUtils";
 import { finishSync } from "./marketplaceSync";
 import { SyncMessages } from "./syncMessages";
 
@@ -38,6 +44,183 @@ async function fetchShopifyGraphQL(
     return json.data;
 }
 
+/**
+ * Get total shipping cost for a Shopify order by querying order events
+ * Returns the sum of all shipping label costs for the order
+ */
+export const getShippingCostForOrder = internalAction({
+    args: {
+        orderGid: v.string(),
+        shop: v.string(),
+        accessToken: v.string(),
+    },
+    handler: async (ctx, args) => {
+        try {
+            const orderEventsQuery = `
+                query OrderEvents($orderId: ID!, $first: Int!) {
+                  order(id: $orderId) {
+                    id
+                    events(first: $first, sortKey: CREATED_AT, reverse: false) {
+                      edges {
+                        node {
+                          id
+                          createdAt
+                          message
+                          ... on BasicEvent {
+                            action
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+            `;
+
+            const data = await fetchShopifyGraphQL(
+                orderEventsQuery,
+                { orderId: args.orderGid, first: 250 },
+                args.shop,
+                args.accessToken
+            );
+
+            if (!data.order || !data.order.events) {
+                return { shipping: 0, insurance: 0 };
+            }
+
+            const events = data.order.events.edges || [];
+            let totalShippingCost = 0;
+            let totalInsurance = 0;
+
+            // Sum up all shipping label purchase events (excluding cancellations)
+            for (const edge of events) {
+                const event = edge.node;
+                const message = (event.message || "").toLowerCase();
+
+                // Look for shipping label purchase events
+                // Skip if this is a cancellation/void event
+                if (
+                    message.includes("shipping label") &&
+                    !message.includes("void") &&
+                    !message.includes("cancel") &&
+                    !message.includes("cancelled")
+                ) {
+                    const match = event.message?.match(
+                        /\$([0-9]+(?:\.[0-9]{2})?)/
+                    );
+                    const cost = match ? parseFloat(match[1]) : null;
+
+                    if (cost != null) {
+                        totalShippingCost += cost;
+                    }
+                }
+
+                // Check for separate insurance events
+                if (
+                    (message.includes("insurance") ||
+                        message.includes("shipsurance")) &&
+                    !message.includes("void") &&
+                    !message.includes("cancel") &&
+                    !message.includes("cancelled")
+                ) {
+                    const match = event.message?.match(
+                        /\$([0-9]+(?:\.[0-9]{2})?)/
+                    );
+                    const insuranceCost = match ? parseFloat(match[1]) : null;
+
+                    if (insuranceCost != null) {
+                        totalInsurance += insuranceCost;
+                    }
+                }
+            }
+
+            return { shipping: totalShippingCost, insurance: totalInsurance };
+        } catch (error) {
+            console.error(
+                `Error getting shipping cost for order ${args.orderGid}:`,
+                error
+            );
+            // Return 0 if we can't fetch, rather than throwing
+            return { shipping: 0, insurance: 0 };
+        }
+    },
+});
+
+/**
+ * Check if a shipping label was cancelled by querying order events
+ * Returns true if label was cancelled/voided, false otherwise
+ */
+async function isShippingLabelCancelled(
+    orderGid: string,
+    labelPurchaseTime: string,
+    shop: string,
+    accessToken: string
+): Promise<boolean> {
+    try {
+        const orderEventsQuery = `
+            query OrderEvents($orderId: ID!, $first: Int!) {
+              order(id: $orderId) {
+                id
+                events(first: $first, sortKey: CREATED_AT, reverse: false) {
+                  edges {
+                    node {
+                      id
+                      createdAt
+                      message
+                      ... on BasicEvent {
+                        action
+                      }
+                    }
+                  }
+                }
+              }
+            }
+        `;
+
+        const data = await fetchShopifyGraphQL(
+            orderEventsQuery,
+            { orderId: orderGid, first: 250 },
+            shop,
+            accessToken
+        );
+
+        if (!data.order || !data.order.events) {
+            return false;
+        }
+
+        const labelPurchaseDate = new Date(labelPurchaseTime);
+        const events = data.order.events.edges || [];
+
+        // Check for cancellation/void events after the label purchase
+        for (const edge of events) {
+            const event = edge.node;
+            const eventDate = new Date(event.createdAt);
+            const message = (event.message || "").toLowerCase();
+
+            // Only check events that occur after the label purchase
+            if (eventDate > labelPurchaseDate) {
+                // Check if this is a shipping label cancellation/void event
+                if (
+                    message.includes("shipping label") &&
+                    (message.includes("void") ||
+                        message.includes("cancel") ||
+                        message.includes("cancelled"))
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    } catch (error) {
+        // If we can't check, assume not cancelled to avoid false positives
+        console.error(
+            `Error checking label cancellation for order ${orderGid}:`,
+            error
+        );
+        return false;
+    }
+}
+
 export const processShopifyOrder = internalAction({
     args: {
         userId: v.id("users"),
@@ -46,26 +229,84 @@ export const processShopifyOrder = internalAction({
         shop: v.string(),
         accessToken: v.string(),
         updateExisting: v.optional(v.boolean()),
+        labelPurchaseTime: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const log: {
+            operation: string;
             orderGid: string;
-            steps: string[];
-            errors: Array<{ step: string; error: string }>;
+            orderId: string;
+            userId: string;
+            shop: string;
+            updateExisting: boolean;
+            timestamp: string;
+            orderData?: {
+                orderName?: string;
+                createdAt?: string;
+                cancelledAt?: string;
+                orderTimestamp?: number;
+                orderExists?: boolean;
+                channelName?: string;
+                lineItemsCount?: number;
+            };
+            shippingData?: {
+                rawShippingLabelCost: number;
+                shippingInsurance: number;
+                totalShippingWithInsurance: number;
+                buyerPaidShipping: number;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+                wasCancelled?: boolean;
+            };
+            fulfillmentData?: {
+                fulfillmentTimestamp?: number;
+                fulfillmentDate?: string;
+                fulfillmentStatus?: string;
+            };
+            items?: Array<{
+                lineItemId: string;
+                sku: string;
+                title: string;
+                quantity: number;
+                price: number;
+                pricePerUnit: number;
+                fees: number;
+                feesPerUnit: number;
+                feesBreakdown: Array<[string, number]>;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+            }>;
+            summary: {
+                totalItems: number;
+                totalQuantity: number;
+                itemsProcessed: number;
+                itemsCreated: number;
+            };
+            errors: Array<{ step: string; error: string; timestamp: string }>;
             skipped: boolean;
-            itemsProcessed: number;
+            skippedReason?: string;
         } = {
+            operation: "process_shopify_order",
             orderGid: args.orderGid,
-            steps: [],
+            orderId: "",
+            userId: args.userId,
+            shop: args.shop,
+            updateExisting: args.updateExisting ?? false,
+            timestamp: new Date().toISOString(),
+            summary: {
+                totalItems: 0,
+                totalQuantity: 0,
+                itemsProcessed: 0,
+                itemsCreated: 0,
+            },
             errors: [],
             skipped: false,
-            itemsProcessed: 0,
         };
 
         try {
             // Extract numeric ID from GID (gid://shopify/Order/123456)
             const orderId = args.orderGid.split("/").pop() || "";
-            log.steps.push(`Extracted order ID: ${orderId}`);
+            log.orderId = orderId;
 
             const query = `
         query GetOrder($id: ID!) {
@@ -73,6 +314,7 @@ export const processShopifyOrder = internalAction({
             id
             name
             createdAt
+            cancelledAt
             shippingLine {
               discountedPriceSet {
                 shopMoney {
@@ -86,8 +328,13 @@ export const processShopifyOrder = internalAction({
               }
             }
             fulfillments(first: 10) {
+              id
               createdAt
               status
+              trackingInfo {
+                number
+                company
+              }
             }
             lineItems(first: 100) {
               edges {
@@ -115,11 +362,20 @@ export const processShopifyOrder = internalAction({
                 args.accessToken
             );
             const order = data.order;
-            log.steps.push("Fetched order from Shopify GraphQL API");
 
             if (!order) {
                 throw new Error(`Order not found: ${args.orderGid}`);
             }
+
+            const orderTimestamp = new Date(order.createdAt).getTime();
+            log.orderData = {
+                orderName: order.name,
+                createdAt: order.createdAt,
+                cancelledAt: order.cancelledAt || undefined,
+                orderTimestamp: orderTimestamp,
+                channelName:
+                    order.channelInformation?.channelDefinition?.channelName,
+            };
 
             // Get allowed sales channels from environment variable
             const allowedChannels =
@@ -135,30 +391,102 @@ export const processShopifyOrder = internalAction({
 
                 if (!allowedChannels.includes(orderChannel)) {
                     log.skipped = true;
-                    log.steps.push(`Order skipped - channel '${orderChannel}' not in allowed list`);
+                    log.skippedReason = `Channel '${orderChannel}' not in allowed list`;
                     console.error(JSON.stringify(log));
                     return { success: true, itemsProcessed: 0, skipped: true };
                 }
             }
 
-            const orderTimestamp = new Date(order.createdAt).getTime();
+            // Check if order is cancelled
+            if (order.cancelledAt) {
+                log.skipped = true;
+                log.skippedReason = "Order is cancelled";
+                console.error(JSON.stringify(log));
+                return { success: true, itemsProcessed: 0, skipped: true };
+            }
 
-            // Extract fulfillment date from fulfillments
-            let fulfillmentTimestamp: number | undefined = undefined;
-            if (order.fulfillments && Array.isArray(order.fulfillments) && order.fulfillments.length > 0) {
-                // Get the latest fulfillment's createdAt
-                const latestFulfillment = order.fulfillments.reduce((latest: any, current: any) => {
-                    if (!latest || !latest.createdAt) return current;
-                    if (!current.createdAt) return latest;
-                    return new Date(current.createdAt) > new Date(latest.createdAt) 
-                        ? current 
-                        : latest;
-                }, null);
-                
-                if (latestFulfillment?.createdAt) {
-                    fulfillmentTimestamp = new Date(latestFulfillment.createdAt).getTime();
-                    log.steps.push(`Extracted fulfillment date: ${latestFulfillment.createdAt}`);
+            // Check if shipping label was cancelled/voided after purchase
+            let labelCancelled = false;
+            if (args.labelPurchaseTime && args.shippingLabelCost > 0) {
+                labelCancelled = await isShippingLabelCancelled(
+                    args.orderGid,
+                    args.labelPurchaseTime,
+                    args.shop,
+                    args.accessToken
+                );
+                if (labelCancelled) {
+                    log.skipped = true;
+                    log.skippedReason = "Shipping label was cancelled/voided";
+                    if (log.shippingData) {
+                        log.shippingData.wasCancelled = true;
+                    }
+                    console.error(JSON.stringify(log));
+                    return { success: true, itemsProcessed: 0, skipped: true };
                 }
+            }
+
+            // Extract fulfillment date from fulfillments and check for cancelled fulfillments
+            let fulfillmentTimestamp: number | undefined = undefined;
+            let fulfillmentDate: string | undefined = undefined;
+            let fulfillmentStatus: string | undefined = undefined;
+            let hasActiveFulfillment = false;
+            if (
+                order.fulfillments &&
+                Array.isArray(order.fulfillments) &&
+                order.fulfillments.length > 0
+            ) {
+                // Filter out cancelled fulfillments
+                const activeFulfillments = order.fulfillments.filter(
+                    (f: any) =>
+                        f.status && f.status.toUpperCase() !== "CANCELLED"
+                );
+
+                // If we have shipping label cost but all fulfillments are cancelled, skip this order
+                if (
+                    activeFulfillments.length === 0 &&
+                    args.shippingLabelCost > 0
+                ) {
+                    log.skipped = true;
+                    log.skippedReason = "All fulfillments are cancelled";
+                    if (log.shippingData) {
+                        log.shippingData.wasCancelled = true;
+                    }
+                    console.error(JSON.stringify(log));
+                    return { success: true, itemsProcessed: 0, skipped: true };
+                }
+
+                hasActiveFulfillment = activeFulfillments.length > 0;
+
+                // Get the latest active fulfillment's createdAt
+                if (hasActiveFulfillment) {
+                    const latestFulfillment = activeFulfillments.reduce(
+                        (latest: any, current: any) => {
+                            if (!latest || !latest.createdAt) return current;
+                            if (!current.createdAt) return latest;
+                            return new Date(current.createdAt) >
+                                new Date(latest.createdAt)
+                                ? current
+                                : latest;
+                        },
+                        null
+                    );
+
+                    if (latestFulfillment?.createdAt) {
+                        fulfillmentTimestamp = new Date(
+                            latestFulfillment.createdAt
+                        ).getTime();
+                        fulfillmentDate = latestFulfillment.createdAt;
+                        fulfillmentStatus = latestFulfillment.status;
+                    }
+                }
+            }
+
+            if (fulfillmentTimestamp) {
+                log.fulfillmentData = {
+                    fulfillmentTimestamp: fulfillmentTimestamp,
+                    fulfillmentDate: fulfillmentDate,
+                    fulfillmentStatus: fulfillmentStatus,
+                };
             }
 
             // Check if order already exists (by orderId and orderDate)
@@ -171,35 +499,140 @@ export const processShopifyOrder = internalAction({
                 }
             );
 
+            if (log.orderData) {
+                log.orderData.orderExists = orderExists;
+            }
+
             if (orderExists && !args.updateExisting) {
                 log.skipped = true;
-                log.steps.push("Order already exists, skipped");
+                log.skippedReason = "Order already exists";
                 console.error(JSON.stringify(log));
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            log.steps.push("Calculated shipping and fees");
-
             const lineItems = order.lineItems.edges.map((e: any) => e.node);
+            if (log.orderData) {
+                log.orderData.lineItemsCount = lineItems.length;
+            }
+            log.summary.totalItems = lineItems.length;
 
             // Extract buyer paid shipping from shippingLine
             const buyerPaidShippingTotal = parseFloat(
                 order.shippingLine?.discountedPriceSet?.shopMoney?.amount || "0"
             );
 
+            // Extract shipping insurance from order events
+            // Query events to find insurance-related messages
+            let shippingInsurance = 0;
+            try {
+                const orderEventsQuery = `
+                    query OrderEvents($orderId: ID!, $first: Int!) {
+                      order(id: $orderId) {
+                        id
+                        events(first: $first, sortKey: CREATED_AT, reverse: false) {
+                          edges {
+                            node {
+                              id
+                              createdAt
+                              message
+                              ... on BasicEvent {
+                                action
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                `;
+
+                const eventsData = await fetchShopifyGraphQL(
+                    orderEventsQuery,
+                    { orderId: args.orderGid, first: 250 },
+                    args.shop,
+                    args.accessToken
+                );
+
+                if (eventsData.order && eventsData.order.events) {
+                    const events = eventsData.order.events.edges || [];
+                    for (const edge of events) {
+                        const event = edge.node;
+                        const message = (event.message || "").toLowerCase();
+
+                        // Check for insurance events (excluding cancellations)
+                        if (
+                            (message.includes("insurance") ||
+                                message.includes("shipsurance")) &&
+                            !message.includes("void") &&
+                            !message.includes("cancel") &&
+                            !message.includes("cancelled")
+                        ) {
+                            const match = event.message?.match(
+                                /\$([0-9]+(?:\.[0-9]{2})?)/
+                            );
+                            const insuranceCost = match
+                                ? parseFloat(match[1])
+                                : null;
+
+                            if (insuranceCost != null) {
+                                shippingInsurance += insuranceCost;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                // If we can't fetch events, insurance will remain 0
+                // This is not a critical error - we'll just proceed without insurance data
+                console.error(
+                    `Error fetching insurance for order ${args.orderGid}:`,
+                    error
+                );
+            }
+
+            // Calculate total shipping including insurance
+            const totalShippingWithInsurance =
+                args.shippingLabelCost + shippingInsurance;
+
             // Calculate total quantity across all line items
             const totalQuantity = lineItems.reduce(
                 (sum: number, item: any) => sum + item.quantity,
                 0
             );
+            log.summary.totalQuantity = totalQuantity;
+
+            // Use total shipping including insurance for calculations
+            const totalOrderShipping = totalShippingWithInsurance;
 
             // Split shipping cost evenly across all units
             const shippingPerUnit =
-                totalQuantity > 0 ? args.shippingLabelCost / totalQuantity : 0;
+                totalQuantity > 0 ? totalOrderShipping / totalQuantity : 0;
 
             // Split buyer paid shipping evenly across all units (using same shippingPercentage)
             const buyerPaidShippingPerUnit =
                 totalQuantity > 0 ? buyerPaidShippingTotal / totalQuantity : 0;
+
+            log.shippingData = {
+                rawShippingLabelCost: args.shippingLabelCost,
+                shippingInsurance: shippingInsurance,
+                totalShippingWithInsurance: totalShippingWithInsurance,
+                buyerPaidShipping: buyerPaidShippingTotal,
+                shippingPerUnit: shippingPerUnit,
+                buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
+                wasCancelled: labelCancelled,
+            };
+
+            const logItems: Array<{
+                lineItemId: string;
+                sku: string;
+                title: string;
+                quantity: number;
+                price: number;
+                pricePerUnit: number;
+                fees: number;
+                feesPerUnit: number;
+                feesBreakdown: Array<[string, number]>;
+                shippingPerUnit: number;
+                buyerPaidShippingPerUnit: number;
+            }> = [];
 
             for (const item of lineItems) {
                 const pricePerUnit = parseFloat(
@@ -211,37 +644,86 @@ export const processShopifyOrder = internalAction({
                 const quantity = item.quantity;
                 const sku = item.sku || item.id;
                 const name = item.title || "Unknown Product";
+                const lineItemId = item.id;
 
                 // Calculate Shopify fees (2.9% + $0.30 per transaction, split across items)
                 const transactionFeePercentage = pricePerUnit * 0.029;
                 const transactionFeeFixed = 0.3;
-                const totalTransactionFee = transactionFeePercentage + transactionFeeFixed;
+                const totalTransactionFee =
+                    transactionFeePercentage + transactionFeeFixed;
                 const transactionFeePerUnit = totalTransactionFee / quantity;
-                
+
                 // Create fee breakdown per unit
                 const feesBreakdownPerUnit: Array<[string, number]> = [
-                    ["Transaction Fee (2.9%)", transactionFeePercentage / quantity],
-                    ["Transaction Fee (Fixed $0.30)", transactionFeeFixed / quantity],
+                    [
+                        "Transaction Fee (2.9%)",
+                        transactionFeePercentage / quantity,
+                    ],
+                    [
+                        "Transaction Fee (Fixed $0.30)",
+                        transactionFeeFixed / quantity,
+                    ],
                 ];
+
+                // Store item data in log before processing
+                logItems.push({
+                    lineItemId: lineItemId,
+                    sku: sku,
+                    title: name,
+                    quantity: quantity,
+                    price: pricePerUnit * quantity,
+                    pricePerUnit: pricePerUnit,
+                    fees: totalTransactionFee,
+                    feesPerUnit: transactionFeePerUnit,
+                    feesBreakdown: feesBreakdownPerUnit,
+                    shippingPerUnit: shippingPerUnit,
+                    buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
+                });
+
+                // Create shipping breakdown (base shipping + insurance)
+                const shippingBreakdown: Array<[string, number]> = [];
+                const baseShippingPerUnit =
+                    args.shippingLabelCost / totalQuantity;
+                const insurancePerUnit = shippingInsurance / totalQuantity;
+
+                if (baseShippingPerUnit > 0 || insurancePerUnit > 0) {
+                    if (baseShippingPerUnit > 0) {
+                        shippingBreakdown.push([
+                            "Base Shipping",
+                            baseShippingPerUnit,
+                        ]);
+                    }
+                    if (insurancePerUnit > 0) {
+                        shippingBreakdown.push([
+                            "Shipping Insurance",
+                            insurancePerUnit,
+                        ]);
+                    }
+                }
 
                 // Calculate shipping percentage (what % of total order shipping this unit represents)
                 const shippingPercentage =
-                    args.shippingLabelCost > 0
-                        ? (shippingPerUnit / args.shippingLabelCost) * 100
+                    totalOrderShipping > 0
+                        ? (shippingPerUnit / totalOrderShipping) * 100
                         : 0;
 
                 // Create a marketplace product for each unit
                 for (let i = 0; i < quantity; i++) {
                     await ctx.runMutation(
-                        internal.shopifyMutations.upsertProductFromShopify,
+                        internal.products.upsertMarketplaceProduct,
                         {
                             userId: args.userId,
+                            marketplace: "Shopify",
                             sku,
                             name,
                             price: pricePerUnit,
                             fees: transactionFeePerUnit,
                             fees_breakdown: feesBreakdownPerUnit,
                             shipping: shippingPerUnit,
+                            shipping_breakdown:
+                                shippingBreakdown.length > 0
+                                    ? shippingBreakdown
+                                    : undefined,
                             shippingPercentage,
                             buyerPaidShipping: buyerPaidShippingPerUnit,
                             orderTimestamp,
@@ -251,24 +733,25 @@ export const processShopifyOrder = internalAction({
                             updateExisting: args.updateExisting ?? false,
                         }
                     );
-                    log.itemsProcessed++;
+                    log.summary.itemsCreated++;
                 }
+                log.summary.itemsProcessed++;
             }
 
-            log.steps.push(`Created ${log.itemsProcessed} product records`);
+            log.items = logItems;
             console.error(JSON.stringify(log));
             return { success: true, itemsProcessed: lineItems.length };
         } catch (error: any) {
             log.errors.push({
                 step: "process_order",
                 error: error.message || String(error),
+                timestamp: new Date().toISOString(),
             });
             console.error(JSON.stringify(log));
             throw error;
         }
     },
 });
-
 
 export const syncShopifyOrdersOneYear = internalAction({
     args: {
@@ -362,7 +845,11 @@ export const syncShopifyOrdersOneYear = internalAction({
                 await updateSyncProgress(
                     ctx,
                     args.syncId,
-                    SyncMessages.fetchingBatch("shopify", batchIndex + 1, batches.length),
+                    SyncMessages.fetchingBatch(
+                        "shopify",
+                        batchIndex + 1,
+                        batches.length
+                    ),
                     undefined
                 );
 
@@ -393,9 +880,16 @@ export const syncShopifyOrdersOneYear = internalAction({
                     for (const edge of events.edges) {
                         const event = edge.node;
                         const message = event.message || "";
+                        const messageLower = message.toLowerCase();
 
                         // Look for shipping label purchase events
-                        if (message.toLowerCase().includes("shipping label")) {
+                        // Skip if this is a cancellation/void event
+                        if (
+                            messageLower.includes("shipping label") &&
+                            !messageLower.includes("void") &&
+                            !messageLower.includes("cancel") &&
+                            !messageLower.includes("cancelled")
+                        ) {
                             const match = message.match(
                                 /\$([0-9]+(?:\.[0-9]{2})?)/
                             );
@@ -419,19 +913,53 @@ export const syncShopifyOrdersOneYear = internalAction({
                 }
             }
 
+            // Group shipping label events by order ID and sum costs
+            // This handles cases where multiple products ship separately with separate labels
+            const ordersByGid: Record<
+                string,
+                { totalCost: number; earliestCreatedAt: string }
+            > = {};
+
+            for (const labelEvent of allLabelEvents) {
+                if (!ordersByGid[labelEvent.orderGid]) {
+                    ordersByGid[labelEvent.orderGid] = {
+                        totalCost: 0,
+                        earliestCreatedAt: labelEvent.createdAt,
+                    };
+                }
+                ordersByGid[labelEvent.orderGid].totalCost += labelEvent.cost;
+                // Use earliest createdAt for cancellation checking
+                if (
+                    new Date(labelEvent.createdAt) <
+                    new Date(ordersByGid[labelEvent.orderGid].earliestCreatedAt)
+                ) {
+                    ordersByGid[labelEvent.orderGid].earliestCreatedAt =
+                        labelEvent.createdAt;
+                }
+            }
+
+            // Convert to array for processing
+            const uniqueOrders = Object.entries(ordersByGid).map(
+                ([orderGid, data]) => ({
+                    orderGid,
+                    shippingLabelCost: data.totalCost,
+                    labelPurchaseTime: data.earliestCreatedAt,
+                })
+            );
+
             await processWithProgress(
                 ctx,
                 args.syncId,
-                allLabelEvents,
-                async (labelEvent, i) => {
-
+                uniqueOrders,
+                async (orderData, _i) => {
                     await ctx.runAction(internal.shopify.processShopifyOrder, {
                         userId: args.userId,
-                        orderGid: labelEvent.orderGid,
-                        shippingLabelCost: labelEvent.cost,
+                        orderGid: orderData.orderGid,
+                        shippingLabelCost: orderData.shippingLabelCost,
                         shop,
                         accessToken,
                         updateExisting: args.updateExisting ?? false,
+                        labelPurchaseTime: orderData.labelPurchaseTime,
                     });
                 },
                 "shopify"
@@ -442,16 +970,21 @@ export const syncShopifyOrdersOneYear = internalAction({
 
             await finishSync(ctx, args.syncId, "shopify");
 
-            return { success: true, ordersProcessed: allLabelEvents.length };
+            return { success: true, ordersProcessed: uniqueOrders.length };
         } catch (error: any) {
             // Don't treat cancellation or missing sync as an error - it's expected
-            if (error.message === "Sync was canceled" || 
+            if (
+                error.message === "Sync was canceled" ||
                 error.message === "Sync does not exist" ||
-                error.message?.includes("Sync is not active")) {
+                error.message?.includes("Sync is not active")
+            ) {
                 return { success: false, canceled: true };
             }
             // Only handle error if sync still exists
-            const syncExists = await ctx.runQuery(internal.products.getSyncById, { syncId: args.syncId });
+            const syncExists = await ctx.runQuery(
+                internal.products.getSyncById,
+                { syncId: args.syncId }
+            );
             if (syncExists) {
                 await handleSyncError(ctx, args.syncId, error, "shopify");
             }
@@ -565,9 +1098,16 @@ export const syncShopifyOrders = internalAction({
                 for (const edge of events.edges) {
                     const event = edge.node;
                     const message = event.message || "";
+                    const messageLower = message.toLowerCase();
 
                     // Look for shipping label purchase events
-                    if (message.toLowerCase().includes("shipping label")) {
+                    // Skip if this is a cancellation/void event
+                    if (
+                        messageLower.includes("shipping label") &&
+                        !messageLower.includes("void") &&
+                        !messageLower.includes("cancel") &&
+                        !messageLower.includes("cancelled")
+                    ) {
                         const match = message.match(
                             /\$([0-9]+(?:\.[0-9]{2})?)/
                         );
@@ -585,19 +1125,53 @@ export const syncShopifyOrders = internalAction({
                 }
             }
 
+            // Group shipping label events by order ID and sum costs
+            // This handles cases where multiple products ship separately with separate labels
+            const ordersByGid: Record<
+                string,
+                { totalCost: number; earliestCreatedAt: string }
+            > = {};
+
+            for (const labelEvent of labelEvents) {
+                if (!ordersByGid[labelEvent.orderGid]) {
+                    ordersByGid[labelEvent.orderGid] = {
+                        totalCost: 0,
+                        earliestCreatedAt: labelEvent.createdAt,
+                    };
+                }
+                ordersByGid[labelEvent.orderGid].totalCost += labelEvent.cost;
+                // Use earliest createdAt for cancellation checking
+                if (
+                    new Date(labelEvent.createdAt) <
+                    new Date(ordersByGid[labelEvent.orderGid].earliestCreatedAt)
+                ) {
+                    ordersByGid[labelEvent.orderGid].earliestCreatedAt =
+                        labelEvent.createdAt;
+                }
+            }
+
+            // Convert to array for processing
+            const uniqueOrders = Object.entries(ordersByGid).map(
+                ([orderGid, data]) => ({
+                    orderGid,
+                    shippingLabelCost: data.totalCost,
+                    labelPurchaseTime: data.earliestCreatedAt,
+                })
+            );
+
             await processWithProgress(
                 ctx,
                 args.syncId,
-                labelEvents,
-                async (labelEvent, i) => {
-
+                uniqueOrders,
+                async (orderData, _i) => {
                     await ctx.runAction(internal.shopify.processShopifyOrder, {
                         userId: args.userId,
-                        orderGid: labelEvent.orderGid,
-                        shippingLabelCost: labelEvent.cost,
+                        orderGid: orderData.orderGid,
+                        shippingLabelCost: orderData.shippingLabelCost,
                         shop,
                         accessToken,
                         updateExisting: args.updateExisting ?? false,
+                        labelPurchaseTime: orderData.labelPurchaseTime,
                     });
                 },
                 "shopify"
@@ -605,7 +1179,7 @@ export const syncShopifyOrders = internalAction({
 
             await finishSync(ctx, args.syncId, "shopify");
 
-            return { success: true, ordersProcessed: labelEvents.length };
+            return { success: true, ordersProcessed: uniqueOrders.length };
         } catch (error: any) {
             await handleSyncError(ctx, args.syncId, error, "shopify");
             throw error;

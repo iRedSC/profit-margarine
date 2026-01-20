@@ -8,6 +8,7 @@ import { Button } from "./ui/button";
 import { Loader2 } from "lucide-react";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Progress } from "./ui/progress";
+import { SyncOrderModal } from "./SyncOrderModal";
 
 export function Header() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -16,6 +17,7 @@ export function Header() {
         x: number;
         y: number;
     } | null>(null);
+    const [isSyncOrderModalOpen, setIsSyncOrderModalOpen] = useState(false);
     const activeSyncs = useQuery(api.products.getSyncStatus) || [];
     const syncAmazonOrders = useMutation(api.products.syncAmazonOrders);
     const syncEbayOrders = useMutation(api.products.syncEbayOrders);
@@ -252,6 +254,15 @@ export function Header() {
                                 >
                                     Sync 1 year
                                 </button>
+                                <button
+                                    onClick={() => {
+                                        setContextMenu(null);
+                                        setIsSyncOrderModalOpen(true);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                                >
+                                    Sync Specific Order
+                                </button>
                             </div>
                         )}
                     </div>
@@ -283,6 +294,10 @@ export function Header() {
                     <SignOutButton />
                 </div>
             </Authenticated>
+            <SyncOrderModal
+                open={isSyncOrderModalOpen}
+                onOpenChange={setIsSyncOrderModalOpen}
+            />
         </header>
     );
 }

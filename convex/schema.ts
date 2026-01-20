@@ -27,6 +27,7 @@ const applicationTables = {
     shipping: v.number(),
     shippingPercentage: v.optional(v.number()),
     buyerPaidShipping: v.optional(v.number()),
+    shipping_breakdown: v.optional(v.array(v.array(v.union(v.string(), v.number())))),
     orderDate: v.number(),
     fulfillmentDate: v.optional(v.number()),
     userId: v.id("users"),

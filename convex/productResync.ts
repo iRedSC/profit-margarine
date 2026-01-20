@@ -51,7 +51,7 @@ export const resyncOrderAction = internalAction({
                 );
 
                 // Fetch the actual shipping cost from transactions (not from stored product)
-                const actualShippingCost = await ctx.runAction(
+                const shippingData = await ctx.runAction(
                     internal.ebay.getShippingCostForOrder,
                     {
                         orderId: args.orderId,
@@ -73,7 +73,7 @@ export const resyncOrderAction = internalAction({
                 await ctx.runAction(internal.ebay.processEbayOrder, {
                     userId: args.userId,
                     orderId: args.orderId,
-                    shippingCost: actualShippingCost, // Use actual shipping from transactions
+                    shippingCost: typeof shippingData === 'object' ? shippingData.shipping : shippingData, // Handle both old and new return formats
                     accessToken,
                     allTransactions: transactions,
                     updateExisting: true,
@@ -101,10 +101,21 @@ export const resyncOrderAction = internalAction({
                         ? args.orderId
                         : `gid://shopify/Order/${args.orderId}`;
 
+                // Fetch the actual shipping cost from order events (not from stored product)
+                // This handles cases where multiple products ship separately with separate labels
+                const actualShippingCost = await ctx.runAction(
+                    internal.shopify.getShippingCostForOrder,
+                    {
+                        orderGid: orderGid,
+                        shop: connection.shop,
+                        accessToken: connection.accessToken,
+                    }
+                );
+
                 await ctx.runAction(internal.shopify.processShopifyOrder, {
                     userId: args.userId,
                     orderGid: orderGid,
-                    shippingLabelCost: shippingCost,
+                    shippingLabelCost: actualShippingCost, // Use actual shipping from events
                     shop: connection.shop,
                     accessToken: connection.accessToken,
                     updateExisting: true,
@@ -119,6 +130,123 @@ export const resyncOrderAction = internalAction({
                 operation: "resync_order",
                 orderId: args.orderId,
                 marketplace: "ebay",
+                error: error.message || String(error),
+                timestamp: new Date().toISOString(),
+            };
+            console.error(JSON.stringify(log));
+            throw error;
+        }
+    },
+});
+
+export const syncOrderByIdAction = internalAction({
+    args: {
+        userId: v.id("users"),
+        marketplace: v.union(
+            v.literal("Ebay"),
+            v.literal("Amazon"),
+            v.literal("Shopify"),
+            v.literal("TikTok")
+        ),
+        orderId: v.string(),
+    },
+    handler: async (ctx, args) => {
+        try {
+            if (args.marketplace === "Amazon") {
+                await ctx.runAction(internal.amazon.processAmazonOrder, {
+                    userId: args.userId,
+                    orderId: args.orderId,
+                    updateExisting: true,
+                });
+            } else if (args.marketplace === "Ebay") {
+                // Get eBay access token
+                const accessToken = await ctx.runAction(
+                    internal.ebay.getEbayAccessTokenForResync,
+                    {
+                        userId: args.userId,
+                    }
+                );
+
+                // For new orders, we don't have orderDate, so we'll fetch transactions
+                // without date filtering - the API will return recent transactions
+                const transactions = await ctx.runAction(
+                    internal.ebay.getTransactionsForOrder,
+                    {
+                        orderId: args.orderId,
+                        accessToken,
+                        orderDate: undefined,
+                    }
+                );
+
+                // Fetch the actual shipping cost from transactions
+                const actualShippingCost = await ctx.runAction(
+                    internal.ebay.getShippingCostForOrder,
+                    {
+                        orderId: args.orderId,
+                        accessToken,
+                        orderDate: undefined,
+                    }
+                );
+
+                await ctx.runAction(internal.ebay.processEbayOrder, {
+                    userId: args.userId,
+                    orderId: args.orderId,
+                    shippingCost: actualShippingCost,
+                    accessToken,
+                    allTransactions: transactions,
+                    updateExisting: true,
+                });
+            } else if (args.marketplace === "Shopify") {
+                // Get Shopify connection
+                const connection = await ctx.runQuery(
+                    internal.shopifyMutations.getShopifyConnection,
+                    {
+                        userId: args.userId,
+                    }
+                );
+
+                if (!connection) {
+                    throw new Error(
+                        "No Shopify connection found. Please connect your Shopify store first."
+                    );
+                }
+
+                // For Shopify, we need the order GID (GraphQL ID)
+                // If orderId is numeric, convert to GID format
+                const orderGid =
+                    args.orderId.startsWith("gid://") ||
+                    args.orderId.startsWith("gid:")
+                        ? args.orderId
+                        : `gid://shopify/Order/${args.orderId}`;
+
+                // Fetch the actual shipping cost from order events
+                const actualShippingCost = await ctx.runAction(
+                    internal.shopify.getShippingCostForOrder,
+                    {
+                        orderGid: orderGid,
+                        shop: connection.shop,
+                        accessToken: connection.accessToken,
+                    }
+                );
+
+                await ctx.runAction(internal.shopify.processShopifyOrder, {
+                    userId: args.userId,
+                    orderGid: orderGid,
+                    shippingLabelCost: actualShippingCost,
+                    shop: connection.shop,
+                    accessToken: connection.accessToken,
+                    updateExisting: true,
+                });
+            } else {
+                throw new Error(`Unsupported marketplace: ${args.marketplace}`);
+            }
+
+            return { success: true };
+        } catch (error: any) {
+            const log = {
+                operation: "sync_order_by_id",
+                orderId: args.orderId,
+                marketplace: args.marketplace,
                 error: error.message || String(error),
                 timestamp: new Date().toISOString(),
             };
