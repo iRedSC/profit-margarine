@@ -14,6 +14,7 @@ import {
     getOrderUrl,
 } from "../lib/productUtils";
 import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
+import { searchProduct } from "../lib/searchUtils";
 
 export function ProductAnalyzer() {
     const products = useQuery(api.products.listProducts) || [];
@@ -62,10 +63,7 @@ export function ProductAnalyzer() {
     };
 
     const filteredProducts = products.filter((product) => {
-        if (
-            skuFilter &&
-            !product.sku.toLowerCase().includes(skuFilter.toLowerCase())
-        ) {
+        if (skuFilter && !searchProduct(skuFilter, product.sku, product.name)) {
             return false;
         }
 
