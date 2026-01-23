@@ -14,7 +14,7 @@ import {
     getOrderUrl,
 } from "../lib/productUtils";
 import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
-import { searchProduct } from "../lib/searchUtils";
+import { searchProduct, getSearchScore } from "../lib/searchUtils";
 
 export function ProductAnalyzer() {
     const products = useQuery(api.products.listProducts) || [];
@@ -62,6 +62,7 @@ export function ProductAnalyzer() {
         setDateRange("today");
     };
 
+    // Filter products first
     const filteredProducts = products.filter((product) => {
         if (skuFilter && !searchProduct(skuFilter, product.sku, product.name)) {
             return false;
@@ -92,7 +93,21 @@ export function ProductAnalyzer() {
             ? filteredProducts.filter((product) => product.cost !== undefined)
             : filteredProducts;
 
+    // Sort products: search score first (when searching), then user's selected sort
     const sortedProducts = [...productsToSort].sort((a, b) => {
+        // Primary sort: search score when searching (higher = better)
+        if (skuFilter) {
+            const aScore = getSearchScore(skuFilter, a.sku, a.name);
+            const bScore = getSearchScore(skuFilter, b.sku, b.name);
+            
+            // If scores differ, sort by score (higher first)
+            if (aScore !== bScore) {
+                return bScore - aScore;
+            }
+            // If scores are equal, fall through to secondary sort
+        }
+
+        // Secondary sort: user's selected sort field
         let aValue: any;
         let bValue: any;
 
