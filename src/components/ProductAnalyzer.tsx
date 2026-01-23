@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ProductFilters } from "./ProductFilters";
 import { ProductMetrics } from "./ProductMetrics";
 import { ProductTable } from "./ProductTable";
@@ -27,7 +27,19 @@ export function ProductAnalyzer() {
     const [sortField, setSortField] = useState<SortField>("fulfillmentDate");
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
+    // Immediate input value for responsive typing
+    const [skuFilterInput, setSkuFilterInput] = useState("");
+    // Debounced search value for actual filtering
     const [skuFilter, setSkuFilter] = useState("");
+
+    // Debounce the search input to avoid lag while typing
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setSkuFilter(skuFilterInput);
+        }, 300); // 300ms delay
+
+        return () => clearTimeout(timer);
+    }, [skuFilterInput]);
     const [marketplaceFilters, setMarketplaceFilters] = useState<Set<string>>(
         new Set()
     );
@@ -57,13 +69,15 @@ export function ProductAnalyzer() {
     };
 
     const clearFilters = () => {
+        setSkuFilterInput("");
         setSkuFilter("");
         setMarketplaceFilters(new Set());
         setDateRange("today");
     };
 
-    // Filter products first
-    const filteredProducts = products.filter((product) => {
+    // Memoize expensive filtering and sorting operations
+    const filteredProducts = useMemo(() => {
+        return products.filter((product) => {
         if (skuFilter && !searchProduct(skuFilter, product.sku, product.name)) {
             return false;
         }
@@ -85,16 +99,19 @@ export function ProductAnalyzer() {
         }
 
         return true;
-    });
+        });
+    }, [products, skuFilter, marketplaceFilters, dateRangeStart, dateRangeEnd]);
 
     // Filter out products with no cost when sorting by profit or margin
-    const productsToSort =
-        sortField === "profit" || sortField === "margin"
+    const productsToSort = useMemo(() => {
+        return sortField === "profit" || sortField === "margin"
             ? filteredProducts.filter((product) => product.cost !== undefined)
             : filteredProducts;
+    }, [filteredProducts, sortField]);
 
     // Sort products: search score first (when searching), then user's selected sort
-    const sortedProducts = [...productsToSort].sort((a, b) => {
+    const sortedProducts = useMemo(() => {
+        return [...productsToSort].sort((a, b) => {
         // Primary sort: search score when searching (higher = better)
         if (skuFilter) {
             const aScore = getSearchScore(skuFilter, a.sku, a.name);
@@ -157,7 +174,8 @@ export function ProductAnalyzer() {
         } else {
             return aValue < bValue ? 1 : -1;
         }
-    });
+        });
+    }, [productsToSort, skuFilter, sortField, sortDirection]);
 
     const costEditing = useCostEditing(updateMarketplaceCost, sortedProducts);
 
@@ -196,8 +214,8 @@ export function ProductAnalyzer() {
     return (
         <div className="space-y-8">
             <ProductFilters
-                skuFilter={skuFilter}
-                setSkuFilter={setSkuFilter}
+                skuFilter={skuFilterInput}
+                setSkuFilter={setSkuFilterInput}
                 marketplaceFilters={marketplaceFilters}
                 toggleMarketplaceFilter={toggleMarketplaceFilter}
                 dateRangeStart={dateRangeStart}
