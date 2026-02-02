@@ -6,11 +6,14 @@ import { Header } from "./components/Header";
 import { Content } from "./components/Content";
 import { AppSidebar } from "./components/Sidebar";
 import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
+import { useAltDragSelection } from "./hooks/useAltDragSelection";
+import { AltDragSelectionOverlay } from "./components/AltDragSelectionOverlay";
 
 export default function App() {
     const [selectedView, setSelectedView] = useState("products");
     const completeEbayOAuth = useMutation(api.ebayMutations.completeOAuthFlow);
     const completeTiktokOAuth = useMutation(api.tiktokMutations.completeOAuthFlow);
+    const { selectionBox, copiedState } = useAltDragSelection();
 
     // Check for OAuth callback success/error
     useEffect(() => {
@@ -84,6 +87,7 @@ export default function App() {
                     <Content selectedView={selectedView} />
                 </div>
             </SidebarInset>
+            <AltDragSelectionOverlay selectionBox={selectionBox} copiedState={copiedState} />
             <Toaster />
         </SidebarProvider>
     );

@@ -96,3 +96,40 @@
 .table-row-hover:hover::before {
     opacity: 1;
 }
+
+/* Alt+drag selection animations */
+@keyframes fadeOut {
+    0% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes popFade {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.8);
+    }
+    20% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+.animate-pop-fade {
+    transform: translate(-50%, -50%);
+}
+
+.animate-fade-out {
+    animation: fadeOut 1.5s ease-out forwards;
+}
+
+.animate-pop-fade {
+    animation: popFade 1.5s ease-out forwards;
+}

@@ -52,9 +52,11 @@ export const getShippingCostForOrder = internalAction({
             let totalInsurance = 0;
 
             // Sum up all shipping label purchase events (excluding cancellations)
+            // Insurance information is in the same message as the shipping label purchase
             for (const edge of events) {
                 const event = edge.node;
                 const message = (event.message || "").toLowerCase();
+                const originalMessage = event.message || "";
 
                 // Look for shipping label purchase events
                 // Skip if this is a cancellation/void event
@@ -64,31 +66,62 @@ export const getShippingCostForOrder = internalAction({
                     !message.includes("cancel") &&
                     !message.includes("cancelled")
                 ) {
-                    const match = event.message?.match(
-                        /\$([0-9]+(?:\.[0-9]{2})?)/
+                    // Extract shipping label cost
+                    // Pattern 1: "You purchased a $X.XX shipping label..."
+                    // Pattern 2: "You purchased a shipping label for $X.XX..."
+                    let shippingCost: number | null = null;
+                    
+                    // Try pattern 1: "purchased a $X.XX shipping label"
+                    const pattern1Match = originalMessage.match(
+                        /purchased a \$([0-9]+(?:\.[0-9]{2})?)\s+shipping label/i
                     );
-                    const cost = match ? parseFloat(match[1]) : null;
-
-                    if (cost != null) {
-                        totalShippingCost += cost;
+                    if (pattern1Match) {
+                        shippingCost = parseFloat(pattern1Match[1]);
+                    } else {
+                        // Try pattern 2: "shipping label for $X.XX"
+                        const pattern2Match = originalMessage.match(
+                            /shipping label for \$([0-9]+(?:\.[0-9]{2})?)/i
+                        );
+                        if (pattern2Match) {
+                            shippingCost = parseFloat(pattern2Match[1]);
+                        } else {
+                            // Fallback: get first dollar amount
+                            const match = originalMessage.match(
+                                /\$([0-9]+(?:\.[0-9]{2})?)/
+                            );
+                            shippingCost = match ? parseFloat(match[1]) : null;
+                        }
                     }
-                }
 
-                // Check for separate insurance events
-                if (
-                    (message.includes("insurance") ||
-                        message.includes("shipsurance")) &&
-                    !message.includes("void") &&
-                    !message.includes("cancel") &&
-                    !message.includes("cancelled")
-                ) {
-                    const match = event.message?.match(
-                        /\$([0-9]+(?:\.[0-9]{2})?)/
-                    );
-                    const insuranceCost = match ? parseFloat(match[1]) : null;
+                    if (shippingCost != null && !isNaN(shippingCost)) {
+                        totalShippingCost += shippingCost;
+                    }
 
-                    if (insuranceCost != null) {
-                        totalInsurance += insuranceCost;
+                    // Extract insurance from the same message if mentioned
+                    if (
+                        message.includes("insurance") ||
+                        message.includes("shipsurance")
+                    ) {
+                        // Check if insurance is included (no separate cost)
+                        // Pattern: "You purchased a $X.XX shipping label and the included shipping insurance premium."
+                        if (message.includes("included shipping insurance")) {
+                            // Insurance is included in the shipping cost, so insurance = 0
+                            totalInsurance += 0;
+                        } else {
+                            // Check for separate insurance premium
+                            // Pattern: "You purchased a shipping label for $X.XX with a $Y.YY shipping insurance premium."
+                            const insuranceMatch = originalMessage.match(
+                                /with a \$([0-9]+(?:\.[0-9]{2})?)\s+shipping insurance premium/i
+                            );
+                            if (insuranceMatch) {
+                                const insuranceCost = parseFloat(
+                                    insuranceMatch[1]
+                                );
+                                if (!isNaN(insuranceCost)) {
+                                    totalInsurance += insuranceCost;
+                                }
+                            }
+                        }
                     }
                 }
             }
