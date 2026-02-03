@@ -6,6 +6,7 @@ import { Tooltip } from "./Tooltip";
 import { FeeBreakdown } from "./FeeBreakdown";
 import { ShippingBreakdown } from "./ShippingBreakdown";
 import { AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Product = {
     _id: Id<"marketplaceProducts">;

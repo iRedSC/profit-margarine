@@ -1,3 +1,5 @@
+import { useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Id } from "../../convex/_generated/dataModel";
 import { SortField, SortDirection } from "../lib/productUtils";
 import { ProductTableRow } from "./ProductTableRow";
@@ -57,9 +59,26 @@ export function ProductTable({
   getOrderUrl,
   onResyncOrder,
 }: ProductTableProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: products.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 56,
+    overscan: 12,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
+      : 0;
   return (
     <div className="rounded-lg border bg-card">
-      <div className="overflow-x-auto">
+      <div
+        ref={scrollContainerRef}
+        className="max-h-[70vh] overflow-auto"
+      >
         <table className="w-full">
           <thead>
             <tr>
@@ -142,20 +161,35 @@ export function ProductTable({
                 </td>
               </tr>
             ) : (
-              products.map((product) => (
-                <ProductTableRow
-                  key={product._id}
-                  product={product}
-                  isEditing={editingCostId === product._id}
-                  editingCostValue={editingCostValue}
-                  setEditingCostValue={setEditingCostValue}
-                  onStartEditing={onStartEditing}
-                  onSaveCost={onSaveCost}
-                  onCancelEditing={onCancelEditing}
-                  orderUrl={getOrderUrl(product.marketplace, product.OrderId)}
-                  onResyncOrder={onResyncOrder}
-                />
-              ))
+              <>
+                {paddingTop > 0 && (
+                  <tr>
+                    <td colSpan={12} style={{ height: paddingTop }} />
+                  </tr>
+                )}
+                {virtualRows.map((virtualRow) => {
+                  const product = products[virtualRow.index];
+                  return (
+                    <ProductTableRow
+                      key={product._id}
+                      product={product}
+                      isEditing={editingCostId === product._id}
+                      editingCostValue={editingCostValue}
+                      setEditingCostValue={setEditingCostValue}
+                      onStartEditing={onStartEditing}
+                      onSaveCost={onSaveCost}
+                      onCancelEditing={onCancelEditing}
+                      orderUrl={getOrderUrl(product.marketplace, product.OrderId)}
+                      onResyncOrder={onResyncOrder}
+                    />
+                  );
+                })}
+                {paddingBottom > 0 && (
+                  <tr>
+                    <td colSpan={12} style={{ height: paddingBottom }} />
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
         </table>

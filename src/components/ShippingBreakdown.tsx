@@ -78,7 +78,7 @@ export function ShippingBreakdown({
                                                     </span>
                                                     <span className="text-sm font-semibold text-muted-foreground">
                                                         $
-                                                        {buyerPaidShipping!.toFixed(
+                                                        {buyerPaidShipping.toFixed(
                                                             2
                                                         )}
                                                     </span>
@@ -111,7 +111,7 @@ export function ShippingBreakdown({
                                                 </span>
                                                 <span className="text-sm font-semibold text-muted-foreground">
                                                     $
-                                                    {buyerPaidShipping!.toFixed(
+                                                    {buyerPaidShipping.toFixed(
                                                         2
                                                     )}
                                                 </span>
