@@ -38,6 +38,9 @@
         --warning-foreground: 0 0% 100%;
         --info: 217 91% 60%;
         --info-foreground: 0 0% 100%;
+        --scrollbar-track: 0 0% 100% / 0;
+        --scrollbar-thumb: 214.3 31.8% 84%;
+        --scrollbar-thumb-hover: 214.3 31.8% 76%;
     }
 
     * {
@@ -46,6 +49,26 @@
 
     body {
         @apply bg-background text-foreground;
+    }
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: hsl(var(--scrollbar-thumb)) hsl(var(--scrollbar-track));
+    }
+    *::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+    *::-webkit-scrollbar-track {
+        background: transparent;
+        border-radius: 999px;
+    }
+    *::-webkit-scrollbar-thumb {
+        background: hsl(var(--scrollbar-thumb));
+        border-radius: 999px;
+        border: 2px solid transparent;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+        background: hsl(var(--scrollbar-thumb-hover));
     }
     .dark {
         --sidebar-background: 240 5.9% 10%;
@@ -62,6 +85,9 @@
         --warning-foreground: 0 0% 100%;
         --info: 217 91% 60%;
         --info-foreground: 0 0% 100%;
+        --scrollbar-track: 0 0% 0% / 0;
+        --scrollbar-thumb: 240 3.7% 35%;
+        --scrollbar-thumb-hover: 240 3.7% 45%;
     }
 }
 
