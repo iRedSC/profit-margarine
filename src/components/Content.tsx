@@ -6,6 +6,7 @@ import { ProductAnalyzer } from "./ProductAnalyzer";
 import { EbayConnect } from "./EbayConnect";
 import { ShopifyConnect } from "./ShopifyConnect";
 import { TiktokConnect } from "./TiktokConnect";
+import { PendingAmazonImportsCard } from "./PendingAmazonImportsCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 
 type ContentProps = {
@@ -48,6 +49,18 @@ export function Content({ selectedView }: ContentProps) {
                             <EbayConnect isConnected={isEbayConnected} />
                             <TiktokConnect isConnected={isTiktokConnected} />
                         </div>
+                    </div>
+                )}
+                {selectedView === "errors" && (
+                    <div className="space-y-6">
+                        <div>
+                            <h2 className="text-3xl font-bold tracking-tight">Errors</h2>
+                            <p className="text-muted-foreground">
+                                Review Amazon imports that are being held out of the
+                                official list until fulfillment or exact fee data arrives.
+                            </p>
+                        </div>
+                        <PendingAmazonImportsCard />
                     </div>
                 )}
             </Authenticated>

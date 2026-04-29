@@ -5,7 +5,6 @@ import { useState, useEffect, useMemo } from "react";
 import { ProductFilters } from "./ProductFilters";
 import { ProductMetrics } from "./ProductMetrics";
 import { ProductTable } from "./ProductTable";
-import { PendingAmazonImportsCard } from "./PendingAmazonImportsCard";
 import { useCostEditing } from "../hooks/useCostEditing";
 import {
     SortField,
@@ -242,8 +241,6 @@ export function ProductAnalyzer() {
                 getOrderUrl={getOrderUrlForProduct}
                 onResyncOrder={handleResyncOrder}
             />
-
-            <PendingAmazonImportsCard />
         </div>
     );
 }
