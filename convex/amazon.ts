@@ -15,6 +15,8 @@ import {
 import { finishSync } from "./marketplaceUtils";
 import { SyncMessages } from "./syncMessages";
 const SellingPartnerAPI = (AmazonSPAPI as any).default || AmazonSPAPI;
+const AMAZON_BACKFILL_LOOKBACK_MS = 72 * 60 * 60 * 1000;
+const AMAZON_PENDING_BACKFILL_RETRY_MS = 60 * 60 * 1000;
 
 // Add your Amazon SP-API credentials as environment variables:
 // - AMAZON_CLIENT_ID (LWA Client ID)
@@ -55,6 +57,128 @@ function getSellingPartnerAPI() {
     });
 }
 
+function mergeFinancialEvents(
+    target: Record<string, any>,
+    source: Record<string, any> | null | undefined
+) {
+    if (!source) {
+        return;
+    }
+
+    for (const [key, value] of Object.entries(source)) {
+        if (Array.isArray(value)) {
+            target[key] = [...(target[key] || []), ...value];
+        } else if (target[key] === undefined) {
+            target[key] = value;
+        }
+    }
+}
+
+async function fetchFinancialEventsForOrder(spApi: any, orderId: string) {
+    const mergedFinancialEvents: Record<string, any> = {};
+    let nextToken: string | undefined;
+    let pagesFetched = 0;
+
+    do {
+        const financialResponse = await spApi.callAPI({
+            operation: "listFinancialEventsByOrderId",
+            endpoint: "finances",
+            path: {
+                orderId,
+            },
+            query: {
+                MaxResultsPerPage: 100,
+                ...(nextToken ? { NextToken: nextToken } : {}),
+            },
+        });
+
+        pagesFetched++;
+        mergeFinancialEvents(
+            mergedFinancialEvents,
+            financialResponse.FinancialEvents
+        );
+        nextToken = financialResponse.NextToken || financialResponse.nextToken;
+    } while (nextToken);
+
+    return {
+        financialEvents:
+            Object.keys(mergedFinancialEvents).length > 0
+                ? mergedFinancialEvents
+                : null,
+        pagesFetched,
+    };
+}
+
+function hasShipmentFinancialEvents(financialEvents: any, orderId: string) {
+    return (
+        financialEvents?.ShipmentEventList?.some(
+            (shipmentEvent: any) => shipmentEvent.AmazonOrderId === orderId
+        ) ?? false
+    );
+}
+
+function getPendingImportReason(args: {
+    hasShipmentFinancialEvents: boolean;
+    usedEstimatedFees: boolean;
+    missingFulfillmentDate: boolean;
+}) {
+    if (!args.hasShipmentFinancialEvents) {
+        return {
+            reasonCode: "missing_shipment_event",
+            reasonMessage:
+                "Amazon has not posted shipment financial events for this order yet, so it is excluded from the official list.",
+        };
+    }
+
+    if (args.missingFulfillmentDate) {
+        return {
+            reasonCode: "missing_fulfillment_date",
+            reasonMessage:
+                "Amazon has not provided a fulfillment date for this order yet, so it is excluded from the official list.",
+        };
+    }
+
+    if (args.usedEstimatedFees) {
+        return {
+            reasonCode: "estimated_fees_only",
+            reasonMessage:
+                "This Amazon order is still using estimated fees and will stay in the pending list until exact fees are available.",
+        };
+    }
+
+    return {
+        reasonCode: "awaiting_financial_settlement",
+        reasonMessage:
+            "This Amazon order is still awaiting settlement details and is excluded from the official list for now.",
+    };
+}
+
+async function fetchAmazonOrders(
+    spApi: any,
+    query: Record<string, any>
+): Promise<Array<{ AmazonOrderId: string }>> {
+    const orders: Array<{ AmazonOrderId: string }> = [];
+    let nextToken: string | undefined;
+
+    do {
+        const ordersResponse = await spApi.callAPI({
+            operation: "getOrders",
+            endpoint: "orders",
+            query: nextToken
+                ? { NextToken: nextToken }
+                : {
+                      ...query,
+                      MaxResultsPerPage: 100,
+                  },
+        });
+
+        orders.push(...(ordersResponse.Orders || []));
+        nextToken = ordersResponse.NextToken || ordersResponse.nextToken;
+    } while (nextToken);
+
+    return orders;
+}
+
 export const processAmazonOrder = internalAction({
     args: {
         userId: v.id("users"),
@@ -73,6 +197,9 @@ export const processAmazonOrder = internalAction({
                 purchaseDate?: string;
                 orderTimestamp?: number;
                 orderExists?: boolean;
+                officialRowCount?: number;
+                pendingRowCount?: number;
+                hasFulfilledOfficialRows?: boolean;
             };
             shippingData?: {
                 rawShippingCost: number;
@@ -92,6 +219,7 @@ export const processAmazonOrder = internalAction({
                 adjustmentEventListLength: number;
                 hasShipmentEventList: boolean;
                 shipmentEventListLength: number;
+                pagesFetched?: number;
             } | null;
             items?: Array<{
                 sku: string;
@@ -104,12 +232,16 @@ export const processAmazonOrder = internalAction({
                 feesBreakdown: Array<[string, number]>;
                 shippingPerUnit: number;
                 buyerPaidShippingPerUnit: number;
+                status?: "official" | "pending";
+                reasonCode?: string;
+                reasonMessage?: string;
             }>;
             summary: {
                 totalItems: number;
                 totalQuantity: number;
                 itemsProcessed: number;
                 itemsCreated: number;
+                itemsQueued: number;
             };
             errors: Array<{ step: string; error: string; timestamp: string }>;
             skipped: boolean;
@@ -125,6 +257,7 @@ export const processAmazonOrder = internalAction({
                 totalQuantity: 0,
                 itemsProcessed: 0,
                 itemsCreated: 0,
+                itemsQueued: 0,
             },
             errors: [],
             skipped: false,
@@ -166,9 +299,10 @@ export const processAmazonOrder = internalAction({
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            // Check if order already exists (by orderId and orderDate)
-            const orderExists = await ctx.runQuery(
-                internal.products.checkOrderExists,
+            // Check whether this order is already tracked in either the
+            // official marketplace list or the pending Amazon import queue.
+            const trackedOrderState = await ctx.runQuery(
+                internal.products.getAmazonOrderImportState,
                 {
                     userId: args.userId,
                     orderId: args.orderId,
@@ -176,9 +310,13 @@ export const processAmazonOrder = internalAction({
                 }
             );
 
-            log.orderData.orderExists = orderExists;
+            log.orderData.orderExists = trackedOrderState.hasTrackedOrder;
+            log.orderData.officialRowCount = trackedOrderState.officialRowCount;
+            log.orderData.pendingRowCount = trackedOrderState.pendingRowCount;
+            log.orderData.hasFulfilledOfficialRows =
+                trackedOrderState.hasFulfilledOfficialRows;
 
-            if (orderExists && !args.updateExisting) {
+            if (trackedOrderState.hasTrackedOrder && !args.updateExisting) {
                 log.skipped = true;
                 log.skippedReason = "Order already exists";
                 console.error(JSON.stringify(log));
@@ -210,22 +348,45 @@ export const processAmazonOrder = internalAction({
 
             // Get financial events for this order to get actual fees and shipping costs
             let financialEvents = null;
+            let financialEventPagesFetched = 0;
             const shippingAdjustments: Array<{ type: string; amount: number }> = [];
             try {
-                const financialResponse = await spApi.callAPI({
-                    operation: "listFinancialEventsByOrderId",
-                    endpoint: "finances",
-                    path: {
-                        orderId: args.orderId,
-                    },
-                });
-                financialEvents = financialResponse.FinancialEvents;
+                const financialResult = await fetchFinancialEventsForOrder(
+                    spApi,
+                    args.orderId
+                );
+                financialEvents = financialResult.financialEvents;
+                financialEventPagesFetched = financialResult.pagesFetched;
             } catch (error: any) {
                 log.errors.push({
                     step: "fetch_financial_events",
                     error: error.message || String(error),
                     timestamp: new Date().toISOString(),
                 });
+            }
+
+            const hasShipmentFinancialEventsForOrder = hasShipmentFinancialEvents(
+                financialEvents,
+                args.orderId
+            );
+
+            if (
+                trackedOrderState.hasFulfilledOfficialRows &&
+                args.updateExisting &&
+                !hasShipmentFinancialEventsForOrder
+            ) {
+                log.skipped = true;
+                log.skippedReason =
+                    "Existing fulfilled Amazon order retained because new shipment financial events are not available yet";
+                log.rawFinancialEvents = financialEvents ? {
+                    hasAdjustmentEventList: !!financialEvents.AdjustmentEventList,
+                    adjustmentEventListLength: financialEvents.AdjustmentEventList?.length || 0,
+                    hasShipmentEventList: !!financialEvents.ShipmentEventList,
+                    shipmentEventListLength: financialEvents.ShipmentEventList?.length || 0,
+                    pagesFetched: financialEventPagesFetched,
+                } : null;
+                console.error(JSON.stringify(log));
+                return { success: true, itemsProcessed: 0, skipped: true };
             }
 
             // Extract FBA fulfillment fees for FBA orders
@@ -346,6 +507,7 @@ export const processAmazonOrder = internalAction({
                 adjustmentEventListLength: financialEvents.AdjustmentEventList?.length || 0,
                 hasShipmentEventList: !!financialEvents.ShipmentEventList,
                 shipmentEventListLength: financialEvents.ShipmentEventList?.length || 0,
+                pagesFetched: financialEventPagesFetched,
             } : null;
             
             log.shippingData = {
@@ -424,9 +586,12 @@ export const processAmazonOrder = internalAction({
                 feesBreakdown: Array<[string, number]>;
                 shippingPerUnit: number;
                 buyerPaidShippingPerUnit: number;
+                status?: "official" | "pending";
+                reasonCode?: string;
+                reasonMessage?: string;
             }> = [];
             
-            let itemsCreated = 0;
+            const attemptTimestamp = Date.now();
             for (const item of orderItems) {
                 const price = parseFloat(item.ItemPrice?.Amount || "0");
                 if (price === 0) {
@@ -510,7 +675,8 @@ export const processAmazonOrder = internalAction({
                 }
 
                 // If we didn't get financial data, fall back to estimates
-                if (actualFees === 0) {
+                const usedEstimatedFees = actualFees === 0;
+                if (usedEstimatedFees) {
                     actualFees = price * 0.15;
                     feesBreakdown.push(["Amazon Fee (Estimated 15%)", actualFees]);
                 }
@@ -573,6 +739,20 @@ export const processAmazonOrder = internalAction({
                         ? (shippingPerUnit / averageShippingPerUnit) * 100
                         : totalQuantity === 1 ? 100 : undefined;
 
+                const missingFulfillmentDate = !fulfillmentTimestamp;
+                const shouldQueuePendingImport =
+                    !hasShipmentFinancialEventsForOrder ||
+                    missingFulfillmentDate ||
+                    usedEstimatedFees;
+                const pendingImportReason = shouldQueuePendingImport
+                    ? getPendingImportReason({
+                          hasShipmentFinancialEvents:
+                              hasShipmentFinancialEventsForOrder,
+                          usedEstimatedFees,
+                          missingFulfillmentDate,
+                      })
+                    : undefined;
+
                 // Store item data in log before processing
                 logItems.push({
                     sku: item.SellerSKU,
@@ -585,7 +765,60 @@ export const processAmazonOrder = internalAction({
                     feesBreakdown: feesBreakdown,
                     shippingPerUnit: shippingPerUnit,
                     buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
+                    status: shouldQueuePendingImport ? "pending" : "official",
+                    reasonCode: pendingImportReason?.reasonCode,
+                    reasonMessage: pendingImportReason?.reasonMessage,
                 });
+
+                if (shouldQueuePendingImport) {
+                    await ctx.runMutation(
+                        internal.products.upsertPendingMarketplaceImport,
+                        {
+                            userId: args.userId,
+                            marketplace: "Amazon",
+                            sku: item.SellerSKU,
+                            name: item.Title,
+                            quantity,
+                            price: pricePerUnit,
+                            fees: feesPerUnit,
+                            fees_breakdown: feesBreakdownPerUnit,
+                            shipping: shippingPerUnit,
+                            shipping_breakdown:
+                                shippingBreakdown.length > 0
+                                    ? shippingBreakdown
+                                    : undefined,
+                            shippingPercentage,
+                            buyerPaidShipping: buyerPaidShippingPerUnit,
+                            orderTimestamp,
+                            fulfillmentTimestamp,
+                            orderId: args.orderId,
+                            OrderId: args.orderId,
+                            reasonCode: pendingImportReason!.reasonCode,
+                            reasonMessage: pendingImportReason!.reasonMessage,
+                            rawFinancialEventsStatus: {
+                                hasShipmentFinancialEvents:
+                                    hasShipmentFinancialEventsForOrder,
+                                hasShipmentEventList:
+                                    !!financialEvents?.ShipmentEventList,
+                                shipmentEventListLength:
+                                    financialEvents?.ShipmentEventList?.length ||
+                                    0,
+                                hasAdjustmentEventList:
+                                    !!financialEvents?.AdjustmentEventList,
+                                adjustmentEventListLength:
+                                    financialEvents?.AdjustmentEventList
+                                        ?.length || 0,
+                                pagesFetched: financialEventPagesFetched,
+                                usedEstimatedFees,
+                                missingFulfillmentDate,
+                            },
+                            lastAttemptAt: attemptTimestamp,
+                        }
+                    );
+                    log.summary.itemsQueued++;
+                    log.summary.itemsProcessed++;
+                    continue;
+                }
 
                 // Create a marketplace product for each quantity
                 for (let i = 0; i < quantity; i++) {
@@ -625,6 +858,67 @@ export const processAmazonOrder = internalAction({
                 timestamp: new Date().toISOString(),
             });
             console.error(JSON.stringify(log));
+            throw error;
+        }
+    },
+});
+
+export const retryPendingAmazonImports = internalAction({
+    args: {
+        userId: v.id("users"),
+        syncId: v.id("syncs"),
+    },
+    handler: async (
+        ctx,
+        args
+    ): Promise<{ success: boolean; ordersProcessed: number }> => {
+        try {
+            await validateSyncActive(ctx, args.syncId);
+
+            const pendingOrderIds: string[] = await ctx.runQuery(
+                internal.products.getPendingAmazonOrdersForBackfill,
+                {
+                    userId: args.userId,
+                    retryBefore:
+                        Date.now() - AMAZON_PENDING_BACKFILL_RETRY_MS,
+                }
+            );
+
+            if (pendingOrderIds.length === 0) {
+                await finishSync(
+                    ctx,
+                    args.syncId,
+                    "amazon",
+                    "Amazon pending import retry complete: no pending orders were eligible yet"
+                );
+                return { success: true, ordersProcessed: 0 };
+            }
+
+            await processWithProgress(
+                ctx,
+                args.syncId,
+                pendingOrderIds,
+                async (orderId: string) => {
+                    await ctx.runAction(internal.amazon.processAmazonOrder, {
+                        userId: args.userId,
+                        orderId,
+                        updateExisting: true,
+                    });
+                },
+                "amazon",
+                "Retrying pending Amazon imports..."
+            );
+
+            await finishSync(
+                ctx,
+                args.syncId,
+                "amazon",
+                `Amazon pending import retry complete: ${pendingOrderIds.length} orders checked`
+            );
+
+            return { success: true, ordersProcessed: pendingOrderIds.length };
+        } catch (error: any) {
+            await handleSyncError(ctx, args.syncId, error, "amazon");
             throw error;
         }
     },
@@ -672,18 +966,13 @@ export const syncAmazonOrdersOneYear = internalAction({
                 const batch = batches[batchIndex];
                 const batchStartDate = batch.start.toISOString();
 
-                const ordersResponse = await spApi.callAPI({
-                    operation: "getOrders",
-                    endpoint: "orders",
-                    query: {
-                        MarketplaceIds: ["ATVPDKIKX0DER"], // US marketplace
-                        LastUpdatedAfter: batchStartDate,
-                        LastUpdatedBefore: batch.end.toISOString(),
-                        OrderStatuses: ["Shipped"],
-                    },
+                const orders = await fetchAmazonOrders(spApi, {
+                    MarketplaceIds: ["ATVPDKIKX0DER"], // US marketplace
+                    LastUpdatedAfter: batchStartDate,
+                    LastUpdatedBefore: batch.end.toISOString(),
+                    OrderStatuses: ["Shipped"],
                 });
 
-                const orders = ordersResponse.Orders || [];
                 allOrders.push(...orders);
 
                 // Small delay between batches to avoid rate limiting
@@ -693,6 +982,7 @@ export const syncAmazonOrdersOneYear = internalAction({
             }
 
             // Now process all orders with proper progress tracking
+            const updateExisting = args.updateExisting ?? true;
             await processWithProgress(
                 ctx,
                 args.syncId,
@@ -701,7 +991,7 @@ export const syncAmazonOrdersOneYear = internalAction({
                     await ctx.runAction(internal.amazon.processAmazonOrder, {
                         userId: args.userId,
                         orderId: order.AmazonOrderId,
-                        updateExisting: args.updateExisting ?? false,
+                        updateExisting,
                     });
                 },
                 "amazon"
@@ -744,23 +1034,21 @@ export const syncAmazonOrders = internalAction({
 
             const spApi = getSellingPartnerAPI();
 
-            // Default to last 24 hours if no start date provided
+            // Re-read a 72-hour window so late-arriving Amazon finance events
+            // can replace initial estimates with actual fees and fulfillment dates.
             const startDate =
                 args.startDate ||
-                new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+                new Date(Date.now() - AMAZON_BACKFILL_LOOKBACK_MS).toISOString();
+            const shouldBackfillRecentOrders = !args.startDate;
+            const updateExisting =
+                args.updateExisting ?? shouldBackfillRecentOrders;
 
-            const ordersResponse = await spApi.callAPI({
-                operation: "getOrders",
-                endpoint: "orders",
-                query: {
-                    MarketplaceIds: ["ATVPDKIKX0DER"], // US marketplace - change as needed
-                    LastUpdatedAfter: startDate,
-                    // Only fetch shipped orders
-                    OrderStatuses: ["Shipped"],
-                },
+            const orders = await fetchAmazonOrders(spApi, {
+                MarketplaceIds: ["ATVPDKIKX0DER"], // US marketplace - change as needed
+                LastUpdatedAfter: startDate,
+                // Only fetch shipped orders
+                OrderStatuses: ["Shipped"],
             });
-
-            const orders = ordersResponse.Orders || [];
 
             await processWithProgress(
                 ctx,
@@ -770,7 +1058,7 @@ export const syncAmazonOrders = internalAction({
                     await ctx.runAction(internal.amazon.processAmazonOrder, {
                         userId: args.userId,
                         orderId: order.AmazonOrderId,
-                        updateExisting: args.updateExisting ?? false,
+                        updateExisting,
                     });
                 },
                 "amazon"

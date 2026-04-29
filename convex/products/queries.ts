@@ -21,6 +21,9 @@ export const listProducts = query({
         // and join with product data
         const result = [];
         for (const mp of allMarketplaceProducts) {
+            if (mp.marketplace === "Amazon" && !mp.fulfillmentDate) {
+                continue;
+            }
             if (!mp.productId) {
                 // Handle legacy data without productId
                 result.push({
@@ -73,6 +76,104 @@ export const listProducts = query({
         }
 
         return result;
+    },
+});
+
+export const listPendingMarketplaceImports = query({
+    args: {},
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            return [];
+        }
+
+        const pendingImports = await ctx.db
+            .query("pendingMarketplaceImports")
+            .withIndex("by_user_marketplace_status", (q) =>
+                q.eq("userId", userId)
+                    .eq("marketplace", "Amazon")
+                    .eq("status", "pending")
+            )
+            .collect();
+
+        const allMarketplaceProducts = await ctx.db
+            .query("marketplaceProducts")
+            .withIndex("by_user", (q) => q.eq("userId", userId))
+            .collect();
+        const incompleteAmazonProducts = allMarketplaceProducts.filter(
+            (product) =>
+                product.marketplace === "Amazon" &&
+                !product.fulfillmentDate &&
+                !!product.orderId
+        );
+
+        const results = pendingImports.map((pendingImport) => ({
+            id: `${pendingImport.orderId}:${pendingImport.sku}:${pendingImport.orderDate}:pending`,
+            orderId: pendingImport.orderId,
+            sku: pendingImport.sku,
+            name: pendingImport.name,
+            quantity: pendingImport.quantity,
+            price: pendingImport.price,
+            fees: pendingImport.fees,
+            shipping: pendingImport.shipping,
+            orderDate: pendingImport.orderDate,
+            reasonCode: pendingImport.reasonCode,
+            reasonMessage: pendingImport.reasonMessage,
+            lastAttemptAt: pendingImport.lastAttemptAt,
+            rawFinancialEventsStatus: pendingImport.rawFinancialEventsStatus,
+        }));
+        const existingKeys = new Set(
+            pendingImports.map((pendingImport) =>
+                [
+                    pendingImport.orderId,
+                    pendingImport.orderDate,
+                    pendingImport.sku,
+                    pendingImport.marketplace,
+                ].join(":")
+            )
+        );
+
+        for (const incompleteProduct of incompleteAmazonProducts) {
+            const sku = incompleteProduct.sku || "Unknown SKU";
+            const key = [
+                incompleteProduct.orderId || incompleteProduct.OrderId || "",
+                incompleteProduct.orderDate,
+                sku,
+                incompleteProduct.marketplace,
+            ].join(":");
+
+            if (!incompleteProduct.orderId || existingKeys.has(key)) {
+                continue;
+            }
+
+            const hasEstimatedFees = Boolean(
+                incompleteProduct.fees_breakdown?.some(
+                    (entry) => entry[0] === "Amazon Fee (Estimated 15%)"
+                )
+            );
+
+            results.push({
+                id: `${incompleteProduct.orderId}:${sku}:${incompleteProduct.orderDate}:marketplace`,
+                orderId: incompleteProduct.orderId,
+                sku,
+                name: incompleteProduct.name || "Unknown Product",
+                quantity: 1,
+                price: incompleteProduct.price,
+                shipping: incompleteProduct.shipping,
+                orderDate: incompleteProduct.orderDate,
+                fees: incompleteProduct.fees,
+                reasonCode: hasEstimatedFees
+                    ? "estimated_fees_only"
+                    : "missing_fulfillment_date",
+                reasonMessage: hasEstimatedFees
+                    ? "This Amazon order is still using estimated fees and is hidden until shipment financial events arrive."
+                    : "This Amazon order is hidden until Amazon provides a fulfillment date.",
+                lastAttemptAt: incompleteProduct.orderDate,
+                rawFinancialEventsStatus: undefined,
+            });
+        }
+
+        return results.sort((a, b) => b.orderDate - a.orderDate);
     },
 });
 
@@ -147,6 +248,50 @@ export const checkOrderExists = internalQuery({
     },
 });
 
+export const getAmazonOrderImportState = internalQuery({
+    args: {
+        userId: v.id("users"),
+        orderId: v.string(),
+        orderDate: v.number(),
+    },
+    handler: async (ctx, args) => {
+        const officialRows = await ctx.db
+            .query("marketplaceProducts")
+            .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
+            .filter((q) =>
+                q.and(
+                    q.eq(q.field("userId"), args.userId),
+                    q.eq(q.field("orderDate"), args.orderDate),
+                    q.eq(q.field("marketplace"), "Amazon")
+                )
+            )
+            .collect();
+
+        const pendingRows = await ctx.db
+            .query("pendingMarketplaceImports")
+            .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
+            .filter((q) =>
+                q.and(
+                    q.eq(q.field("userId"), args.userId),
+                    q.eq(q.field("orderDate"), args.orderDate),
+                    q.eq(q.field("marketplace"), "Amazon"),
+                    q.eq(q.field("status"), "pending")
+                )
+            )
+            .collect();
+
+        return {
+            hasTrackedOrder:
+                officialRows.length > 0 || pendingRows.length > 0,
+            officialRowCount: officialRows.length,
+            hasFulfilledOfficialRows: officialRows.some((row) =>
+                Boolean(row.fulfillmentDate)
+            ),
+            pendingRowCount: pendingRows.length,
+        };
+    },
+});
+
 export const getSyncById = internalQuery({
     args: {
         syncId: v.id("syncs"),
@@ -200,5 +345,52 @@ export const getAllMarketplaceProductsWithOrders = internalQuery({
         }
 
         return Array.from(orderMap.values());
+    },
+});
+
+export const getPendingAmazonOrdersForBackfill = internalQuery({
+    args: {
+        userId: v.id("users"),
+        retryBefore: v.optional(v.number()),
+    },
+    handler: async (ctx, args) => {
+        const pendingImports = await ctx.db
+            .query("pendingMarketplaceImports")
+            .withIndex("by_user_marketplace_status", (q) =>
+                q.eq("userId", args.userId)
+                    .eq("marketplace", "Amazon")
+                    .eq("status", "pending")
+            )
+            .collect();
+
+        const orderIds = new Set<string>();
+        for (const pendingImport of pendingImports) {
+            if (
+                args.retryBefore !== undefined &&
+                pendingImport.lastAttemptAt > args.retryBefore
+            ) {
+                continue;
+            }
+            orderIds.add(pendingImport.orderId);
+        }
+
+        const allMarketplaceProducts = await ctx.db
+            .query("marketplaceProducts")
+            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .collect();
+        const incompleteAmazonProducts = allMarketplaceProducts.filter(
+            (product) =>
+                product.marketplace === "Amazon" &&
+                !product.fulfillmentDate &&
+                !!product.orderId
+        );
+
+        for (const incompleteProduct of incompleteAmazonProducts) {
+            if (incompleteProduct.orderId) {
+                orderIds.add(incompleteProduct.orderId);
+            }
+        }
+
+        return Array.from(orderIds);
     },
 });

@@ -107,3 +107,34 @@ export const resyncAllOrders = mutation({
         return { message: "Resync all orders started" };
     },
 });
+
+export const retryPendingAmazonImports = mutation({
+    args: {},
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
+
+        const syncId = await ctx.db.insert("syncs", {
+            userId,
+            marketplace: "amazon",
+            status: "active",
+            total: 0,
+            complete: 0,
+            message: "Retrying pending Amazon imports...",
+            startedAt: Date.now(),
+        });
+
+        await ctx.scheduler.runAfter(
+            0,
+            internal.amazon.retryPendingAmazonImports,
+            {
+                userId,
+                syncId,
+            }
+        );
+
+        return { message: "Pending Amazon import retry started" };
+    },
+});

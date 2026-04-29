@@ -180,6 +180,139 @@ export const deleteMarketplaceProductsByOrder = internalMutation({
     },
 });
 
+async function upsertPendingMarketplaceImportHandler(
+    ctx: any,
+    args: {
+        userId: Id<"users">;
+        marketplace: "Amazon" | "Ebay" | "Shopify" | "TikTok";
+        sku: string;
+        name: string;
+        quantity: number;
+        price: number;
+        fees: number;
+        fees_breakdown?: Array<Array<string | number>>;
+        shipping: number;
+        shipping_breakdown?: Array<Array<string | number>>;
+        shippingPercentage?: number;
+        buyerPaidShipping?: number;
+        orderTimestamp: number;
+        fulfillmentTimestamp?: number;
+        orderId: string;
+        OrderId?: string;
+        reasonCode: string;
+        reasonMessage: string;
+        rawFinancialEventsStatus?: {
+            hasShipmentFinancialEvents: boolean;
+            hasShipmentEventList: boolean;
+            shipmentEventListLength: number;
+            hasAdjustmentEventList: boolean;
+            adjustmentEventListLength: number;
+            pagesFetched: number;
+            usedEstimatedFees: boolean;
+            missingFulfillmentDate: boolean;
+        };
+        lastAttemptAt: number;
+    }
+) {
+    const existingPendingImports = await ctx.db
+        .query("pendingMarketplaceImports")
+        .withIndex("by_order_id", (q: any) => q.eq("orderId", args.orderId))
+        .filter((q: any) =>
+            q.and(
+                q.eq(q.field("userId"), args.userId),
+                q.eq(q.field("orderDate"), args.orderTimestamp),
+                q.eq(q.field("sku"), args.sku),
+                q.eq(q.field("marketplace"), args.marketplace)
+            )
+        )
+        .collect();
+
+    if (existingPendingImports.length > 0) {
+        for (const existingPendingImport of existingPendingImports) {
+            await ctx.db.patch(existingPendingImport._id, {
+                status: "pending",
+                OrderId: args.OrderId,
+                name: args.name,
+                quantity: args.quantity,
+                price: args.price,
+                fees: args.fees,
+                fees_breakdown: args.fees_breakdown,
+                shipping: args.shipping,
+                shipping_breakdown: args.shipping_breakdown,
+                shippingPercentage: args.shippingPercentage,
+                buyerPaidShipping: args.buyerPaidShipping,
+                fulfillmentDate: args.fulfillmentTimestamp,
+                reasonCode: args.reasonCode,
+                reasonMessage: args.reasonMessage,
+                rawFinancialEventsStatus: args.rawFinancialEventsStatus,
+                lastAttemptAt: args.lastAttemptAt,
+                resolvedAt: undefined,
+            });
+        }
+        return;
+    }
+
+    await ctx.db.insert("pendingMarketplaceImports", {
+        userId: args.userId,
+        marketplace: args.marketplace,
+        status: "pending",
+        orderId: args.orderId,
+        OrderId: args.OrderId,
+        sku: args.sku,
+        name: args.name,
+        quantity: args.quantity,
+        price: args.price,
+        fees: args.fees,
+        fees_breakdown: args.fees_breakdown,
+        shipping: args.shipping,
+        shipping_breakdown: args.shipping_breakdown,
+        shippingPercentage: args.shippingPercentage,
+        buyerPaidShipping: args.buyerPaidShipping,
+        orderDate: args.orderTimestamp,
+        fulfillmentDate: args.fulfillmentTimestamp,
+        reasonCode: args.reasonCode,
+        reasonMessage: args.reasonMessage,
+        rawFinancialEventsStatus: args.rawFinancialEventsStatus,
+        lastAttemptAt: args.lastAttemptAt,
+    });
+}
+
+async function resolvePendingMarketplaceImportHandler(
+    ctx: any,
+    args: {
+        userId: Id<"users">;
+        marketplace: "Amazon" | "Ebay" | "Shopify" | "TikTok";
+        sku: string;
+        orderTimestamp: number;
+        orderId: string;
+        fulfillmentTimestamp?: number;
+    }
+) {
+    const existingPendingImports = await ctx.db
+        .query("pendingMarketplaceImports")
+        .withIndex("by_order_id", (q: any) => q.eq("orderId", args.orderId))
+        .filter((q: any) =>
+            q.and(
+                q.eq(q.field("userId"), args.userId),
+                q.eq(q.field("orderDate"), args.orderTimestamp),
+                q.eq(q.field("sku"), args.sku),
+                q.eq(q.field("marketplace"), args.marketplace),
+                q.eq(q.field("status"), "pending")
+            )
+        )
+        .collect();
+
+    for (const existingPendingImport of existingPendingImports) {
+        await ctx.db.patch(existingPendingImport._id, {
+            status: "resolved",
+            fulfillmentDate:
+                args.fulfillmentTimestamp ??
+                existingPendingImport.fulfillmentDate,
+            resolvedAt: Date.now(),
+        });
+    }
+}
+
 /**
  * Shared handler logic for upserting marketplace products
  */
@@ -267,6 +400,16 @@ async function upsertMarketplaceProductHandler(
                     name: args.name,
                 });
             }
+            if (args.marketplace === "Amazon" && args.fulfillmentTimestamp) {
+                await resolvePendingMarketplaceImportHandler(ctx, {
+                    userId: args.userId,
+                    marketplace: args.marketplace,
+                    sku: args.sku,
+                    orderTimestamp: args.orderTimestamp,
+                    orderId: args.orderId,
+                    fulfillmentTimestamp: args.fulfillmentTimestamp,
+                });
+            }
             return;
         }
     }
@@ -291,6 +434,17 @@ async function upsertMarketplaceProductHandler(
         sku: args.sku,
         name: args.name,
     });
+
+    if (args.marketplace === "Amazon" && args.fulfillmentTimestamp) {
+        await resolvePendingMarketplaceImportHandler(ctx, {
+            userId: args.userId,
+            marketplace: args.marketplace,
+            sku: args.sku,
+            orderTimestamp: args.orderTimestamp,
+            orderId: args.orderId,
+            fulfillmentTimestamp: args.fulfillmentTimestamp,
+        });
+    }
 }
 
 /**
@@ -326,5 +480,72 @@ export const upsertMarketplaceProduct = internalMutation({
     },
     handler: async (ctx, args) => {
         await upsertMarketplaceProductHandler(ctx, args);
+    },
+});
+
+export const upsertPendingMarketplaceImport = internalMutation({
+    args: {
+        userId: v.id("users"),
+        marketplace: v.union(
+            v.literal("Amazon"),
+            v.literal("Ebay"),
+            v.literal("Shopify"),
+            v.literal("TikTok")
+        ),
+        sku: v.string(),
+        name: v.string(),
+        quantity: v.number(),
+        price: v.number(),
+        fees: v.number(),
+        fees_breakdown: v.optional(
+            v.array(v.array(v.union(v.string(), v.number())))
+        ),
+        shipping: v.number(),
+        shipping_breakdown: v.optional(
+            v.array(v.array(v.union(v.string(), v.number())))
+        ),
+        shippingPercentage: v.optional(v.number()),
+        buyerPaidShipping: v.optional(v.number()),
+        orderTimestamp: v.number(),
+        fulfillmentTimestamp: v.optional(v.number()),
+        orderId: v.string(),
+        OrderId: v.optional(v.string()),
+        reasonCode: v.string(),
+        reasonMessage: v.string(),
+        rawFinancialEventsStatus: v.optional(
+            v.object({
+                hasShipmentFinancialEvents: v.boolean(),
+                hasShipmentEventList: v.boolean(),
+                shipmentEventListLength: v.number(),
+                hasAdjustmentEventList: v.boolean(),
+                adjustmentEventListLength: v.number(),
+                pagesFetched: v.number(),
+                usedEstimatedFees: v.boolean(),
+                missingFulfillmentDate: v.boolean(),
+            })
+        ),
+        lastAttemptAt: v.number(),
+    },
+    handler: async (ctx, args) => {
+        await upsertPendingMarketplaceImportHandler(ctx, args);
+    },
+});
+
+export const resolvePendingMarketplaceImport = internalMutation({
+    args: {
+        userId: v.id("users"),
+        marketplace: v.union(
+            v.literal("Amazon"),
+            v.literal("Ebay"),
+            v.literal("Shopify"),
+            v.literal("TikTok")
+        ),
+        sku: v.string(),
+        orderTimestamp: v.number(),
+        orderId: v.string(),
+        fulfillmentTimestamp: v.optional(v.number()),
+    },
+    handler: async (ctx, args) => {
+        await resolvePendingMarketplaceImportHandler(ctx, args);
     },
 });

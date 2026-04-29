@@ -59,7 +59,7 @@ export function Header() {
                 toast.success("Resyncing all orders from existing marketplace products!");
             } else {
                 // Normal sync - fetch new orders from APIs
-                await syncAmazonOrders({ updateExisting });
+                await syncAmazonOrders({});
                 await syncEbayOrders({ updateExisting });
                 await syncShopifyOrders({ updateExisting });
                 toast.success("Sync started for all marketplaces!");
@@ -75,7 +75,7 @@ export function Header() {
         setIsSyncing(true);
         setContextMenu(null);
         try {
-            await syncAmazonOrdersOneYear({});
+            await syncAmazonOrdersOneYear({ updateExisting: true });
             await syncEbayOrdersOneYear({});
             await syncShopifyOrdersOneYear({});
             toast.success("1-year sync started for all marketplaces!");

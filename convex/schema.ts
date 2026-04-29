@@ -40,6 +40,50 @@ const applicationTables = {
     .index("by_product", ["productId"])
     .index("by_order_id", ["orderId"]),
 
+  pendingMarketplaceImports: defineTable({
+    userId: v.id("users"),
+    marketplace: v.union(
+      v.literal("Amazon"),
+      v.literal("Ebay"),
+      v.literal("Shopify"),
+      v.literal("TikTok")
+    ),
+    status: v.union(v.literal("pending"), v.literal("resolved")),
+    orderId: v.string(),
+    OrderId: v.optional(v.string()),
+    sku: v.string(),
+    name: v.string(),
+    quantity: v.number(),
+    price: v.number(),
+    fees: v.number(),
+    fees_breakdown: v.optional(v.array(v.array(v.union(v.string(), v.number())))),
+    shipping: v.number(),
+    shippingPercentage: v.optional(v.number()),
+    buyerPaidShipping: v.optional(v.number()),
+    shipping_breakdown: v.optional(v.array(v.array(v.union(v.string(), v.number())))),
+    orderDate: v.number(),
+    fulfillmentDate: v.optional(v.number()),
+    reasonCode: v.string(),
+    reasonMessage: v.string(),
+    rawFinancialEventsStatus: v.optional(
+      v.object({
+        hasShipmentFinancialEvents: v.boolean(),
+        hasShipmentEventList: v.boolean(),
+        shipmentEventListLength: v.number(),
+        hasAdjustmentEventList: v.boolean(),
+        adjustmentEventListLength: v.number(),
+        pagesFetched: v.number(),
+        usedEstimatedFees: v.boolean(),
+        missingFulfillmentDate: v.boolean(),
+      })
+    ),
+    lastAttemptAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_order_id", ["orderId"])
+    .index("by_user_marketplace_status", ["userId", "marketplace", "status"]),
+
   syncs: defineTable({
     userId: v.id("users"),
     marketplace: v.union(

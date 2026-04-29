@@ -67,7 +67,7 @@ export const syncAmazonOrders = mutation({
         await ctx.scheduler.runAfter(0, internal.amazon.syncAmazonOrders, {
             userId,
             syncId,
-            updateExisting: args.updateExisting ?? false,
+            updateExisting: args.updateExisting,
         });
 
         return { message: "Amazon sync started" };
@@ -75,8 +75,10 @@ export const syncAmazonOrders = mutation({
 });
 
 export const syncAmazonOrdersOneYear = mutation({
-    args: {},
-    handler: async (ctx) => {
+    args: {
+        updateExisting: v.optional(v.boolean()),
+    },
+    handler: async (ctx, args) => {
         const { userId, syncId } = await initializeSyncStatus(ctx, "amazon");
         await ctx.db.patch(syncId, {
             message: SyncMessages.startingOneYear("amazon"),
@@ -88,6 +90,7 @@ export const syncAmazonOrdersOneYear = mutation({
             {
                 userId,
                 syncId,
+                updateExisting: args.updateExisting,
             }
         );
 

@@ -117,7 +117,6 @@ export async function cancelSync(
     // Check if we're in an action context (has runMutation) or mutation context (has db)
     if (ctx.runMutation) {
         // Action context - use internal mutation
-        // @ts-expect-error - Type instantiation is excessively deep, using type assertion to bypass
         const cancelSyncMutation = internal.products.cancelSync;
         await ctx.runMutation(cancelSyncMutation as any, {
             syncId,
