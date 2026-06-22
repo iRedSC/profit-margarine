@@ -64,6 +64,11 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
         const margin = calculateMargin(p.price, p.cost, p.fees, p.netShipping);
         return profit > 0 && (margin < 5 || profit < 3);
     }).length;
+    const totalRows = filteredProducts.length;
+    const rowCountSuffix = (count: number) => {
+        const percentage = totalRows > 0 ? (count / totalRows) * 100 : 0;
+        return `(${percentage.toFixed(1)}% of ${totalRows})`;
+    };
 
     if (filteredProducts.length === 0) {
         return null;
@@ -153,7 +158,10 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
                         Rows Without Cost
                     </div>
                     <div className="text-2xl font-bold text-info">
-                        {rowsWithoutCost}
+                        {rowsWithoutCost}{" "}
+                        <span className="text-sm font-normal text-info/70">
+                            {rowCountSuffix(rowsWithoutCost)}
+                        </span>
                     </div>
                 </div>
 
@@ -162,7 +170,10 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
                         Unprofitable
                     </div>
                     <div className="text-2xl font-bold text-destructive">
-                        {unprofitableRows}
+                        {unprofitableRows}{" "}
+                        <span className="text-sm font-normal text-destructive/70">
+                            {rowCountSuffix(unprofitableRows)}
+                        </span>
                     </div>
                 </div>
 
@@ -171,7 +182,10 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
                         Dubious {"(<5% or <$3)"}
                     </div>
                     <div className="text-2xl font-bold text-warning">
-                        {barelyProfitableRows}
+                        {barelyProfitableRows}{" "}
+                        <span className="text-sm font-normal text-warning/70">
+                            {rowCountSuffix(barelyProfitableRows)}
+                        </span>
                     </div>
                 </div>
             </div>
