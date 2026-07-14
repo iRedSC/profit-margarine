@@ -168,6 +168,22 @@ export function productRowsToExportSheet(
   }));
 }
 
+export type ExportableCostRow = {
+  sku: string;
+  name?: string;
+  cost?: number;
+};
+
+export function productCostsToExportSheet(
+  products: ExportableCostRow[]
+): Record<string, string | number>[] {
+  return products.map((p) => ({
+    sku: p.sku,
+    name: p.name || "",
+    cost: p.cost ?? "",
+  }));
+}
+
 export function parseDataRowsFromSheet(
   jsonData: Record<string, unknown>[]
 ): ParsedDataRow[] {

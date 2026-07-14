@@ -3,6 +3,29 @@ import { query, internalQuery } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "../_generated/dataModel";
 
+export const listProductCosts = query({
+    args: {},
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            return [];
+        }
+
+        const catalogProducts = await ctx.db
+            .query("products")
+            .withIndex("by_user", (q) => q.eq("userId", userId))
+            .collect();
+
+        return catalogProducts
+            .map((product) => ({
+                sku: product.sku,
+                name: product.name,
+                cost: product.cost,
+            }))
+            .sort((a, b) => a.sku.localeCompare(b.sku));
+    },
+});
+
 export const listProducts = query({
     args: {},
     handler: async (ctx) => {

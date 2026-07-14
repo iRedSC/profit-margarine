@@ -63,8 +63,13 @@ Click the "Sync All" button to fetch orders from all configured marketplaces.
 
 ### Exporting Data
 
-1. Click "Export Data"
+1. Click "Export" → "Export Data"
 2. Download an Excel file of all profitability table rows (SKU, marketplace, price, cost, fees, shipping, dates, order IDs, etc.)
+
+### Exporting Costs
+
+1. Click "Export" → "Export Costs"
+2. Download an Excel file of unique SKUs with name and cost (compatible with Import Costs)
 
 ### Importing Data
 

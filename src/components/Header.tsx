@@ -12,6 +12,7 @@ import { SyncOrderModal } from "./SyncOrderModal";
 import {
     IMPORT_CHUNK_SIZE,
     parseDataRowsFromSheet,
+    productCostsToExportSheet,
     productRowsToExportSheet,
 } from "../lib/dataImportExport";
 
@@ -24,8 +25,10 @@ export function Header() {
         y: number;
     } | null>(null);
     const [importMenuOpen, setImportMenuOpen] = useState(false);
+    const [exportMenuOpen, setExportMenuOpen] = useState(false);
     const [isSyncOrderModalOpen, setIsSyncOrderModalOpen] = useState(false);
     const products = useQuery(api.products.listProducts) || [];
+    const productCosts = useQuery(api.products.listProductCosts) || [];
     const activeSyncs = useQuery(api.products.getSyncStatus) || [];
     const syncAmazonOrders = useMutation(api.products.syncAmazonOrders);
     const syncEbayOrders = useMutation(api.products.syncEbayOrders);
@@ -50,6 +53,7 @@ export function Header() {
     const costsFileInputRef = useRef<HTMLInputElement>(null);
     const dataFileInputRef = useRef<HTMLInputElement>(null);
     const importMenuRef = useRef<HTMLDivElement>(null);
+    const exportMenuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const handleClickOutside = () => {
@@ -63,19 +67,26 @@ export function Header() {
     }, [contextMenu]);
 
     useEffect(() => {
-        if (!importMenuOpen) return;
+        if (!importMenuOpen && !exportMenuOpen) return;
         const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as Node;
             if (
                 importMenuRef.current &&
-                !importMenuRef.current.contains(event.target as Node)
+                !importMenuRef.current.contains(target)
             ) {
                 setImportMenuOpen(false);
+            }
+            if (
+                exportMenuRef.current &&
+                !exportMenuRef.current.contains(target)
+            ) {
+                setExportMenuOpen(false);
             }
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () =>
             document.removeEventListener("mousedown", handleClickOutside);
-    }, [importMenuOpen]);
+    }, [importMenuOpen, exportMenuOpen]);
 
     const handleSyncAll = async (updateExisting: boolean = false) => {
         setIsSyncing(true);
@@ -122,6 +133,7 @@ export function Header() {
     };
 
     const handleExportData = () => {
+        setExportMenuOpen(false);
         if (products.length === 0) {
             toast.error("No data rows to export");
             return;
@@ -138,6 +150,31 @@ export function Header() {
             toast.success(`Exported ${products.length} data rows`);
         } catch (error: any) {
             toast.error(`Export failed: ${error.message || "Unknown error"}`);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleExportCosts = () => {
+        setExportMenuOpen(false);
+        if (productCosts.length === 0) {
+            toast.error("No product costs to export");
+            return;
+        }
+
+        setIsExporting(true);
+        try {
+            const sheetRows = productCostsToExportSheet(productCosts);
+            const worksheet = XLSX.utils.json_to_sheet(sheetRows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Costs");
+            const dateStamp = new Date().toISOString().slice(0, 10);
+            XLSX.writeFile(workbook, `product-costs-${dateStamp}.xlsx`);
+            toast.success(`Exported ${productCosts.length} product costs`);
+        } catch (error: any) {
+            toast.error(
+                `Cost export failed: ${error.message || "Unknown error"}`
+            );
         } finally {
             setIsExporting(false);
         }
@@ -362,20 +399,41 @@ export function Header() {
                         )}
                     </div>
 
-                    <Button
-                        onClick={handleExportData}
-                        disabled={isExporting || isImporting}
-                        variant="outline"
-                    >
-                        {isExporting ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Exporting...
-                            </>
-                        ) : (
-                            "Export Data"
+                    <div className="relative" ref={exportMenuRef}>
+                        <Button
+                            onClick={() => {
+                                setImportMenuOpen(false);
+                                setExportMenuOpen((open) => !open);
+                            }}
+                            disabled={isExporting || isImporting}
+                            variant="outline"
+                        >
+                            {isExporting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Exporting...
+                                </>
+                            ) : (
+                                "Export"
+                            )}
+                        </Button>
+                        {exportMenuOpen && !isExporting && (
+                            <div className="absolute right-0 top-full mt-1 rounded-md border bg-popover text-popover-foreground shadow-md py-1 z-50 min-w-[160px]">
+                                <button
+                                    onClick={handleExportData}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                                >
+                                    Export Data
+                                </button>
+                                <button
+                                    onClick={handleExportCosts}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                                >
+                                    Export Costs
+                                </button>
+                            </div>
                         )}
-                    </Button>
+                    </div>
 
                     <input
                         ref={costsFileInputRef}
@@ -397,7 +455,10 @@ export function Header() {
                     />
                     <div className="relative" ref={importMenuRef}>
                         <Button
-                            onClick={() => setImportMenuOpen((open) => !open)}
+                            onClick={() => {
+                                setExportMenuOpen(false);
+                                setImportMenuOpen((open) => !open);
+                            }}
                             disabled={isImporting}
                             variant="default"
                         >
