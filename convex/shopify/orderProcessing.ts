@@ -5,6 +5,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { fetchShopifyGraphQL } from "./graphql";
 import { isShippingLabelCancelled } from "./shipping";
+import { splitOrderCosts } from "../lib/orderCosts";
 
 export const processShopifyOrder = internalAction({
     args: {
@@ -398,12 +399,14 @@ export const processShopifyOrder = internalAction({
             const totalOrderShipping = totalShippingWithInsurance;
 
             // Split shipping cost evenly across all units
-            const shippingPerUnit =
-                totalQuantity > 0 ? totalOrderShipping / totalQuantity : 0;
-
-            // Split buyer paid shipping evenly across all units (using same shippingPercentage)
-            const buyerPaidShippingPerUnit =
-                totalQuantity > 0 ? buyerPaidShippingTotal / totalQuantity : 0;
+            const { shippingPerUnit, buyerPaidPerUnit: buyerPaidShippingPerUnit } =
+                totalQuantity > 0
+                    ? splitOrderCosts({
+                          totalShipping: totalOrderShipping,
+                          totalBuyerPaid: buyerPaidShippingTotal,
+                          totalQty: totalQuantity,
+                      })
+                    : { shippingPerUnit: 0, buyerPaidPerUnit: 0 };
 
             log.shippingData = {
                 rawShippingLabelCost: args.shippingLabelCost,
@@ -524,7 +527,6 @@ export const processShopifyOrder = internalAction({
                             orderTimestamp,
                             fulfillmentTimestamp,
                             orderId: orderId,
-                            OrderId: orderId || "",
                             updateExisting: args.updateExisting ?? false,
                         }
                     );

@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { toast } from "sonner";
-
-type Product = {
-  _id: Id<"marketplaceProducts">;
-  cost: number | undefined;
-};
+import { Product } from "../types/product";
 
 export function useCostEditing(
   updateMarketplaceCost: (args: { marketplaceProductId: Id<"marketplaceProducts">; cost: number | undefined }) => Promise<null>,

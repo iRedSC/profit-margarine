@@ -197,9 +197,9 @@ export function ProductAnalyzer() {
 
     const getOrderUrlForProduct = (
         marketplace: string,
-        OrderId: string | undefined
+        orderId: string | undefined
     ) => {
-        return getOrderUrl(marketplace, OrderId, shopDomain ?? undefined);
+        return getOrderUrl(marketplace, orderId, shopDomain ?? undefined);
     };
 
     const handleResyncOrder = async (id: Id<"marketplaceProducts">) => {

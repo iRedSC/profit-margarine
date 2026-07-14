@@ -1,4 +1,4 @@
-import { Tooltip } from "./Tooltip";
+import { BreakdownTooltip } from "./BreakdownTooltip";
 
 type ShippingBreakdownProps = {
     shipping: number;
@@ -22,13 +22,16 @@ function ShippingPercentageLabel({
     );
 }
 
+function parseAmount(amount: string | number): number {
+    return typeof amount === "number" ? amount : parseFloat(String(amount));
+}
+
 export function ShippingBreakdown({
     shipping,
     shipping_breakdown,
     buyerPaidShipping,
     shippingPercentage,
 }: ShippingBreakdownProps) {
-    // Calculate net shipping cost (seller shipping - buyer paid shipping)
     const netShipping =
         buyerPaidShipping !== undefined
             ? shipping - buyerPaidShipping
@@ -39,108 +42,53 @@ export function ShippingBreakdown({
     const hasBuyerPaid =
         buyerPaidShipping !== undefined && buyerPaidShipping !== 0;
 
-    // Show tooltip if there's breakdown or buyer paid shipping
     if (hasBreakdown || hasBuyerPaid) {
+        const rows = hasBreakdown
+            ? [
+                  ...shipping_breakdown.map(([label, amount]) => ({
+                      label: String(label),
+                      amount: parseAmount(amount),
+                  })),
+                  ...(hasBuyerPaid
+                      ? [
+                            {
+                                label: "Buyer Paid",
+                                amount: buyerPaidShipping,
+                                muted: true,
+                            },
+                        ]
+                      : []),
+              ]
+            : [
+                  { label: "Seller Shipping", amount: shipping },
+                  ...(hasBuyerPaid
+                      ? [
+                            {
+                                label: "Buyer Paid",
+                                amount: buyerPaidShipping,
+                                muted: true,
+                            },
+                        ]
+                      : []),
+              ];
+
+        const showTotal = hasBuyerPaid || !hasBreakdown;
+
         return (
             <div className="flex flex-col items-end">
-                <Tooltip
-                    content={
-                        <div className="w-56">
-                            <div className="space-y-2.5">
-                                {hasBreakdown ? (
-                                    <>
-                                        {shipping_breakdown.map(
-                                            ([label, amount], idx) => (
-                                                <div
-                                                    key={idx}
-                                                    className="flex justify-between items-center"
-                                                >
-                                                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                                        {String(label)}
-                                                    </span>
-                                                    <span className="text-sm font-semibold">
-                                                        $
-                                                        {typeof amount ===
-                                                        "number"
-                                                            ? amount.toFixed(2)
-                                                            : parseFloat(
-                                                                  String(amount)
-                                                              ).toFixed(2)}
-                                                    </span>
-                                                </div>
-                                            )
-                                        )}
-                                        {hasBuyerPaid && (
-                                            <>
-                                                <div className="flex justify-between items-center pt-1">
-                                                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                                        Buyer Paid
-                                                    </span>
-                                                    <span className="text-sm font-semibold text-muted-foreground">
-                                                        $
-                                                        {buyerPaidShipping.toFixed(
-                                                            2
-                                                        )}
-                                                    </span>
-                                                </div>
-                                                <div className="border-t border-border pt-2.5 mt-2.5 flex justify-between items-center">
-                                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                                        Net Cost
-                                                    </span>
-                                                    <span className="text-sm font-bold">
-                                                        ${netShipping.toFixed(2)}
-                                                    </span>
-                                                </div>
-                                            </>
-                                        )}
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                                Seller Shipping
-                                            </span>
-                                            <span className="text-sm font-semibold">
-                                                ${shipping.toFixed(2)}
-                                            </span>
-                                        </div>
-                                        {hasBuyerPaid && (
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                                    Buyer Paid
-                                                </span>
-                                                <span className="text-sm font-semibold text-muted-foreground">
-                                                    $
-                                                    {buyerPaidShipping.toFixed(
-                                                        2
-                                                    )}
-                                                </span>
-                                            </div>
-                                        )}
-                                        <div className="border-t border-border pt-2.5 mt-2.5 flex justify-between items-center">
-                                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                                Net Cost
-                                            </span>
-                                            <span className="text-sm font-bold">
-                                                ${netShipping.toFixed(2)}
-                                            </span>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    }
+                <BreakdownTooltip
+                    rows={rows}
+                    totalLabel={showTotal ? "Net Cost" : undefined}
+                    totalAmount={showTotal ? netShipping : undefined}
+                    widthClassName="w-56"
                 >
-                    <span className="cursor-help underline decoration-dotted decoration-muted-foreground/50 hover:decoration-muted-foreground">
-                        ${netShipping.toFixed(2)}
-                    </span>
-                </Tooltip>
+                    ${netShipping.toFixed(2)}
+                </BreakdownTooltip>
                 <ShippingPercentageLabel shippingPercentage={shippingPercentage} />
             </div>
         );
     }
 
-    // No breakdown, just show the net shipping
     return (
         <div className="flex flex-col items-end">
             <span>${netShipping.toFixed(2)}</span>

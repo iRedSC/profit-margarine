@@ -1,30 +1,12 @@
 import { useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { calculateProfit, calculateMargin } from "../lib/productUtils";
+import { Product } from "../types/product";
 import { ContextMenu } from "./ContextMenu";
 import { Tooltip } from "./Tooltip";
 import { FeeBreakdown } from "./FeeBreakdown";
 import { ShippingBreakdown } from "./ShippingBreakdown";
 import { AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-type Product = {
-    _id: Id<"marketplaceProducts">;
-    sku: string;
-    name: string | undefined;
-    marketplace: string;
-    price: number;
-    cost: number | undefined;
-    fees: number;
-    fees_breakdown?: Array<Array<string | number>>;
-    shipping: number;
-    shipping_breakdown?: Array<Array<string | number>>;
-    shippingPercentage: number | undefined;
-    buyerPaidShipping: number | undefined;
-    orderDate: number;
-    fulfillmentDate: number | undefined;
-    OrderId: string | undefined;
-};
 
 type ProductTableRowProps = {
     product: Product;
@@ -282,7 +264,7 @@ export function ProductTableRow({
                         {
                             label: "Resync Order",
                             onClick: handleResyncOrder,
-                            disabled: !onResyncOrder || !product.OrderId,
+                            disabled: !onResyncOrder || !product.orderId,
                         },
                     ]}
                 />

@@ -1,20 +1,17 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
-
-const marketplaceValidator = v.union(
-  v.literal("Ebay"),
-  v.literal("Amazon"),
-  v.literal("Shopify"),
-  v.literal("TikTok")
-);
+import { requireUserId } from "./lib/auth";
+import {
+  breakdownValidator,
+  productMarketplaceValidator,
+} from "./lib/validators";
 
 const dataRowValidator = v.object({
   id: v.optional(v.string()),
   sku: v.string(),
   name: v.optional(v.string()),
-  marketplace: marketplaceValidator,
+  marketplace: productMarketplaceValidator,
   price: v.number(),
   cost: v.optional(v.number()),
   fees: v.number(),
@@ -24,13 +21,10 @@ const dataRowValidator = v.object({
   orderDate: v.number(),
   fulfillmentDate: v.optional(v.number()),
   orderId: v.optional(v.string()),
+  // Temporary: accept legacy Excel column during OrderId → orderId migration
   OrderId: v.optional(v.string()),
-  fees_breakdown: v.optional(
-    v.array(v.array(v.union(v.string(), v.number())))
-  ),
-  shipping_breakdown: v.optional(
-    v.array(v.array(v.union(v.string(), v.number())))
-  ),
+  fees_breakdown: v.optional(breakdownValidator),
+  shipping_breakdown: v.optional(breakdownValidator),
 });
 
 async function ensureProduct(
@@ -116,16 +110,21 @@ export const importMarketplaceProducts = mutation({
     rows: v.array(dataRowValidator),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
+    const userId = await requireUserId(ctx);
 
     let updated = 0;
     let created = 0;
 
     for (const row of args.rows) {
-      const existing = await findExistingMarketplaceProduct(ctx, userId, row);
+      const orderId = row.orderId || row.OrderId;
+
+      const existing = await findExistingMarketplaceProduct(ctx, userId, {
+        id: row.id,
+        marketplace: row.marketplace,
+        sku: row.sku,
+        orderDate: row.orderDate,
+        orderId,
+      });
 
       const productId = await ensureProduct(
         ctx,
@@ -160,8 +159,7 @@ export const importMarketplaceProducts = mutation({
           ...(row.fulfillmentDate !== undefined
             ? { fulfillmentDate: row.fulfillmentDate }
             : {}),
-          ...(row.orderId !== undefined ? { orderId: row.orderId } : {}),
-          ...(row.OrderId !== undefined ? { OrderId: row.OrderId } : {}),
+          ...(orderId !== undefined ? { orderId } : {}),
           ...(row.name !== undefined ? { name: row.name } : {}),
         });
         updated++;
@@ -191,8 +189,7 @@ export const importMarketplaceProducts = mutation({
           ...(row.fulfillmentDate !== undefined
             ? { fulfillmentDate: row.fulfillmentDate }
             : {}),
-          ...(row.orderId !== undefined ? { orderId: row.orderId } : {}),
-          ...(row.OrderId !== undefined ? { OrderId: row.OrderId } : {}),
+          ...(orderId !== undefined ? { orderId } : {}),
           ...(row.name !== undefined ? { name: row.name } : {}),
         });
         created++;

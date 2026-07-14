@@ -2,24 +2,8 @@ import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Id } from "../../convex/_generated/dataModel";
 import { SortField, SortDirection } from "../lib/productUtils";
+import { Product } from "../types/product";
 import { ProductTableRow } from "./ProductTableRow";
-
-type Product = {
-  _id: Id<"marketplaceProducts">;
-  sku: string;
-  name: string | undefined;
-  marketplace: string;
-  price: number;
-  cost: number | undefined;
-  fees: number;
-  fees_breakdown?: Array<Array<string | number>>;
-  shipping: number;
-  shippingPercentage: number | undefined;
-  buyerPaidShipping: number | undefined;
-  orderDate: number;
-  fulfillmentDate: number | undefined;
-  OrderId: string | undefined;
-};
 
 type ProductTableProps = {
   products: Product[];
@@ -33,7 +17,7 @@ type ProductTableProps = {
   onStartEditing: (id: Id<"marketplaceProducts">, cost: number | undefined) => void;
   onSaveCost: (id: Id<"marketplaceProducts">, moveToNext: boolean) => Promise<void>;
   onCancelEditing: () => void;
-  getOrderUrl: (marketplace: string, OrderId: string | undefined) => string | null;
+  getOrderUrl: (marketplace: string, orderId: string | undefined) => string | null;
   onResyncOrder?: (id: Id<"marketplaceProducts">) => Promise<void>;
 };
 
@@ -179,7 +163,7 @@ export function ProductTable({
                       onStartEditing={onStartEditing}
                       onSaveCost={onSaveCost}
                       onCancelEditing={onCancelEditing}
-                      orderUrl={getOrderUrl(product.marketplace, product.OrderId)}
+                      orderUrl={getOrderUrl(product.marketplace, product.orderId)}
                       onResyncOrder={onResyncOrder}
                     />
                   );

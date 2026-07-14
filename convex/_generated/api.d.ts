@@ -9,17 +9,29 @@
  */
 
 import type * as amazon from "../amazon.js";
+import type * as amazon_client from "../amazon/client.js";
+import type * as amazon_finance from "../amazon/finance.js";
+import type * as amazon_processOrder from "../amazon/processOrder.js";
+import type * as amazon_sync from "../amazon/sync.js";
 import type * as auth from "../auth.js";
 import type * as ebay from "../ebay.js";
 import type * as ebayMutations from "../ebayMutations.js";
 import type * as ebayOAuth from "../ebayOAuth.js";
-import type * as ebayRouter from "../ebayRouter.js";
 import type * as ebayRoutes from "../ebayRoutes.js";
+import type * as ebay_processOrder from "../ebay/processOrder.js";
+import type * as ebay_sync from "../ebay/sync.js";
+import type * as ebay_transactions from "../ebay/transactions.js";
 import type * as http from "../http.js";
 import type * as importCosts from "../importCosts.js";
 import type * as importData from "../importData.js";
+import type * as lib_auth from "../lib/auth.js";
+import type * as lib_marketplace from "../lib/marketplace.js";
+import type * as lib_oauthHttp from "../lib/oauthHttp.js";
+import type * as lib_orderCosts from "../lib/orderCosts.js";
+import type * as lib_validators from "../lib/validators.js";
 import type * as marketplaceConnections from "../marketplaceConnections.js";
 import type * as marketplaceUtils from "../marketplaceUtils.js";
+import type * as migrations from "../migrations.js";
 import type * as productResync from "../productResync.js";
 import type * as products from "../products.js";
 import type * as products_mutations from "../products/mutations.js";
@@ -30,7 +42,6 @@ import type * as router from "../router.js";
 import type * as shopify from "../shopify.js";
 import type * as shopifyMutations from "../shopifyMutations.js";
 import type * as shopifyOAuth from "../shopifyOAuth.js";
-import type * as shopifyRouter from "../shopifyRouter.js";
 import type * as shopify_graphql from "../shopify/graphql.js";
 import type * as shopify_orderProcessing from "../shopify/orderProcessing.js";
 import type * as shopify_shipping from "../shopify/shipping.js";
@@ -48,17 +59,29 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   amazon: typeof amazon;
+  "amazon/client": typeof amazon_client;
+  "amazon/finance": typeof amazon_finance;
+  "amazon/processOrder": typeof amazon_processOrder;
+  "amazon/sync": typeof amazon_sync;
   auth: typeof auth;
   ebay: typeof ebay;
   ebayMutations: typeof ebayMutations;
   ebayOAuth: typeof ebayOAuth;
-  ebayRouter: typeof ebayRouter;
   ebayRoutes: typeof ebayRoutes;
+  "ebay/processOrder": typeof ebay_processOrder;
+  "ebay/sync": typeof ebay_sync;
+  "ebay/transactions": typeof ebay_transactions;
   http: typeof http;
   importCosts: typeof importCosts;
   importData: typeof importData;
+  "lib/auth": typeof lib_auth;
+  "lib/marketplace": typeof lib_marketplace;
+  "lib/oauthHttp": typeof lib_oauthHttp;
+  "lib/orderCosts": typeof lib_orderCosts;
+  "lib/validators": typeof lib_validators;
   marketplaceConnections: typeof marketplaceConnections;
   marketplaceUtils: typeof marketplaceUtils;
+  migrations: typeof migrations;
   productResync: typeof productResync;
   products: typeof products;
   "products/mutations": typeof products_mutations;
@@ -69,7 +92,6 @@ declare const fullApi: ApiFromModules<{
   shopify: typeof shopify;
   shopifyMutations: typeof shopifyMutations;
   shopifyOAuth: typeof shopifyOAuth;
-  shopifyRouter: typeof shopifyRouter;
   "shopify/graphql": typeof shopify_graphql;
   "shopify/orderProcessing": typeof shopify_orderProcessing;
   "shopify/shipping": typeof shopify_shipping;

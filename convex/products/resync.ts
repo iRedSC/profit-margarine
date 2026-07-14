@@ -1,24 +1,22 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
+import { requireUserId } from "../lib/auth";
 
 export const resyncOrder = mutation({
     args: {
         marketplaceProductId: v.id("marketplaceProducts"),
     },
     handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
+        const userId = await requireUserId(ctx);
 
         const mp = await ctx.db.get(args.marketplaceProductId);
         if (!mp || mp.userId !== userId) {
             throw new Error("Marketplace product not found or unauthorized");
         }
 
-        if (!mp.orderId && !mp.OrderId) {
+        const orderId = mp.orderId || (mp as { OrderId?: string }).OrderId;
+        if (!orderId) {
             throw new Error("Order ID not found for this product");
         }
 
@@ -30,7 +28,7 @@ export const resyncOrder = mutation({
                 userId,
                 marketplaceProductId: args.marketplaceProductId,
                 marketplace: mp.marketplace,
-                orderId: mp.orderId || mp.OrderId || "",
+                orderId,
             }
         );
 
@@ -49,14 +47,21 @@ export const syncOrderById = mutation({
         orderId: v.string(),
     },
     handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
+        const userId = await requireUserId(ctx);
 
         if (!args.orderId || args.orderId.trim() === "") {
             throw new Error("Order ID is required");
         }
+
+        console.error(
+            JSON.stringify({
+                operation: "sync_order_by_id_requested",
+                marketplace: args.marketplace,
+                orderId: args.orderId.trim(),
+                userId: userId.toString(),
+                timestamp: new Date().toISOString(),
+            })
+        );
 
         // Schedule the sync action
         await ctx.scheduler.runAfter(
@@ -76,16 +81,13 @@ export const syncOrderById = mutation({
 export const resyncAllOrders = mutation({
     args: {},
     handler: async (ctx) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
+        const userId = await requireUserId(ctx);
 
         // Create a sync record for tracking progress
-        // Use "amazon" as the marketplace type but with a custom message
+        // Use amazon as placeholder marketplace; message indicates all orders
         const syncId = await ctx.db.insert("syncs", {
             userId,
-            marketplace: "amazon", // Using "amazon" as placeholder, message will indicate it's for all
+            marketplace: "amazon",
             status: "active",
             total: 0,
             complete: 0,
@@ -111,10 +113,15 @@ export const resyncAllOrders = mutation({
 export const retryPendingAmazonImports = mutation({
     args: {},
     handler: async (ctx) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
+        const userId = await requireUserId(ctx);
+
+        console.error(
+            JSON.stringify({
+                operation: "retry_pending_amazon_imports_requested",
+                userId: userId.toString(),
+                timestamp: new Date().toISOString(),
+            })
+        );
 
         const syncId = await ctx.db.insert("syncs", {
             userId,

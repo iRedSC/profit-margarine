@@ -3,14 +3,7 @@ import {
     calculateMargin,
     formatCurrency,
 } from "../lib/productUtils";
-
-type Product = {
-    price: number;
-    cost: number | undefined;
-    fees: number;
-    shipping: number;
-    buyerPaidShipping: number | undefined;
-};
+import { Product } from "../types/product";
 
 type ProductMetricsProps = {
     filteredProducts: Product[];

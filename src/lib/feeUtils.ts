@@ -2,6 +2,13 @@
  * Utility functions for fee estimation and formatting
  */
 
+import {
+    AMAZON_ESTIMATED_FEE_LABEL,
+    EBAY_ESTIMATED_FEE_LABEL,
+    SHOPIFY_TRANSACTION_FEE_FIXED_LABEL,
+    SHOPIFY_TRANSACTION_FEE_PCT_LABEL,
+} from "./feeConstants";
+
 export type FeeBreakdown = Array<Array<string | number>>;
 
 export interface ProcessedFee {
@@ -11,26 +18,18 @@ export interface ProcessedFee {
     isEstimated: boolean;
 }
 
+const ESTIMATED_FEE_LABELS = new Set([
+    EBAY_ESTIMATED_FEE_LABEL,
+    AMAZON_ESTIMATED_FEE_LABEL,
+    SHOPIFY_TRANSACTION_FEE_PCT_LABEL,
+    SHOPIFY_TRANSACTION_FEE_FIXED_LABEL,
+]);
+
 /**
  * Check if a fee type is estimated based on known patterns
  */
 export function isEstimatedFee(feeType: string): boolean {
-    // eBay estimated fee (fallback when no API data)
-    if (feeType === "Final Value Fee (Estimated)") {
-        return true;
-    }
-    // Amazon estimated fee (fallback when no API data)
-    if (feeType === "Amazon Fee (Estimated 15%)") {
-        return true;
-    }
-    // Shopify fees are calculated (not from API)
-    if (
-        feeType === "Transaction Fee (2.9%)" ||
-        feeType === "Transaction Fee (Fixed $0.30)"
-    ) {
-        return true;
-    }
-    return false;
+    return ESTIMATED_FEE_LABELS.has(feeType);
 }
 
 /**

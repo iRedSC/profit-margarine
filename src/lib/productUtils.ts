@@ -14,19 +14,19 @@ export function formatCurrency(amount: number): string {
   return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function getOrderUrl(marketplace: string, OrderId: string | undefined, shopDomain: string | undefined): string | null {
-  if (!OrderId) return null;
+export function getOrderUrl(marketplace: string, orderId: string | undefined, shopDomain: string | undefined): string | null {
+  if (!orderId) return null;
   
   switch (marketplace) {
     case "Amazon":
-      return `https://sellercentral.amazon.com/orders-v3/order/${OrderId}`;
+      return `https://sellercentral.amazon.com/orders-v3/order/${orderId}`;
     case "Ebay":
-      return `https://www.ebay.com/sh/ord/details?orderid=${OrderId}`;
+      return `https://www.ebay.com/sh/ord/details?orderid=${orderId}`;
     case "Shopify":
       if (!shopDomain) return null;
-      return `https://${shopDomain}/admin/orders/${OrderId}`;
+      return `https://${shopDomain}/admin/orders/${orderId}`;
     case "TikTok":
-      return `https://seller-us.tiktok.com/order/detail/${OrderId}`;
+      return `https://seller-us.tiktok.com/order/detail/${orderId}`;
     default:
       return null;
   }

@@ -12,7 +12,6 @@ export const DATA_EXPORT_COLUMNS = [
   "orderDate",
   "fulfillmentDate",
   "orderId",
-  "OrderId",
   "fees_breakdown",
   "shipping_breakdown",
 ] as const;
@@ -35,7 +34,6 @@ export type ExportableProductRow = {
   orderDate: number;
   fulfillmentDate?: number;
   orderId?: string;
-  OrderId?: string;
   fees_breakdown?: Array<Array<string | number>>;
   shipping_breakdown?: Array<Array<string | number>>;
 };
@@ -54,7 +52,6 @@ export type ParsedDataRow = {
   orderDate: number;
   fulfillmentDate?: number;
   orderId?: string;
-  OrderId?: string;
   fees_breakdown?: Array<Array<string | number>>;
   shipping_breakdown?: Array<Array<string | number>>;
 };
@@ -160,7 +157,6 @@ export function productRowsToExportSheet(
     orderDate: formatDate(p.orderDate),
     fulfillmentDate: formatDate(p.fulfillmentDate),
     orderId: p.orderId || "",
-    OrderId: p.OrderId || "",
     fees_breakdown: p.fees_breakdown ? JSON.stringify(p.fees_breakdown) : "",
     shipping_breakdown: p.shipping_breakdown
       ? JSON.stringify(p.shipping_breakdown)
@@ -215,8 +211,9 @@ export function parseDataRowsFromSheet(
     "fulfillmentdate"
   );
   const orderIdHeader = findHeader(headers, "orderId", "orderid");
-  const OrderIdHeader = headers.find((h) => h === "OrderId") ||
-    findHeader(headers, "OrderId");
+  // Legacy Excel column — coalesce into orderId below
+  const OrderIdHeader =
+    headers.find((h) => h === "OrderId") || findHeader(headers, "OrderId");
   const feesBreakdownHeader = findHeader(
     headers,
     "fees_breakdown",
@@ -281,14 +278,14 @@ export function parseDataRowsFromSheet(
       : undefined;
     if (fulfillmentDate !== undefined) parsed.fulfillmentDate = fulfillmentDate;
 
-    if (orderIdHeader) {
-      const orderId = String(row[orderIdHeader] || "").trim();
-      if (orderId) parsed.orderId = orderId;
-    }
-    if (OrderIdHeader) {
-      const OrderId = String(row[OrderIdHeader] || "").trim();
-      if (OrderId) parsed.OrderId = OrderId;
-    }
+    const orderIdFromHeader = orderIdHeader
+      ? String(row[orderIdHeader] || "").trim()
+      : "";
+    const orderIdFromLegacy = OrderIdHeader
+      ? String(row[OrderIdHeader] || "").trim()
+      : "";
+    const orderId = orderIdFromHeader || orderIdFromLegacy;
+    if (orderId) parsed.orderId = orderId;
 
     if (feesBreakdownHeader) {
       const fees_breakdown = parseBreakdown(row[feesBreakdownHeader]);

@@ -1,28 +1,25 @@
 import { v } from "convex/values";
 import { mutation, internalMutation } from "../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "../_generated/dataModel";
+import { requireUserId } from "../lib/auth";
+import {
+    marketplaceLineItemFields,
+    productMarketplaceValidator,
+    rawFinancialEventsStatusValidator,
+} from "../lib/validators";
 
 export const addProduct = mutation({
     args: {
         sku: v.string(),
         name: v.string(),
-        marketplace: v.union(
-            v.literal("Ebay"),
-            v.literal("Amazon"),
-            v.literal("Shopify"),
-            v.literal("TikTok")
-        ),
+        marketplace: productMarketplaceValidator,
         price: v.number(),
         cost: v.number(),
         fees: v.number(),
         shipping: v.number(),
     },
     handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
+        const userId = await requireUserId(ctx);
 
         const existingProduct = await ctx.db
             .query("products")
@@ -32,7 +29,6 @@ export const addProduct = mutation({
             .first();
 
         let productId: Id<"products">;
-
         let productCost: number | undefined;
 
         if (existingProduct) {
@@ -67,24 +63,18 @@ export const updateMarketplaceCost = mutation({
         cost: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
+        const userId = await requireUserId(ctx);
 
         const mp = await ctx.db.get(args.marketplaceProductId);
         if (!mp || mp.userId !== userId) {
             throw new Error("Not found or unauthorized");
         }
 
-        // Update the marketplace product cost
         await ctx.db.patch(args.marketplaceProductId, { cost: args.cost });
 
-        // Update the associated product cost if it exists
         if (mp.productId) {
             await ctx.db.patch(mp.productId, { cost: args.cost });
 
-            // Propagate to all marketplace products without a cost set
             const allMps = await ctx.db
                 .query("marketplaceProducts")
                 .withIndex("by_product", (q) => q.eq("productId", mp.productId))
@@ -99,38 +89,31 @@ export const updateMarketplaceCost = mutation({
                 }
             }
         }
-
-        return null;
     },
 });
 
 export const deleteMarketplaceProduct = mutation({
     args: {
-        id: v.id("marketplaceProducts"),
+        marketplaceProductId: v.id("marketplaceProducts"),
     },
     handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) {
-            throw new Error("Not authenticated");
+        const userId = await requireUserId(ctx);
+
+        const mp = await ctx.db.get(args.marketplaceProductId);
+        if (!mp || mp.userId !== userId) {
+            throw new Error("Not found or unauthorized");
         }
 
-        const marketplaceProduct = await ctx.db.get(args.id);
-        if (!marketplaceProduct || marketplaceProduct.userId !== userId) {
-            throw new Error("Marketplace product not found or unauthorized");
-        }
+        const productId = mp.productId;
+        await ctx.db.delete(args.marketplaceProductId);
 
-        await ctx.db.delete(args.id);
-
-        if (marketplaceProduct.productId) {
-            const remainingMarketplaceProducts = await ctx.db
+        if (productId) {
+            const remaining = await ctx.db
                 .query("marketplaceProducts")
-                .withIndex("by_product", (q) =>
-                    q.eq("productId", marketplaceProduct.productId)
-                )
-                .collect();
-
-            if (remainingMarketplaceProducts.length === 0) {
-                await ctx.db.delete(marketplaceProduct.productId);
+                .withIndex("by_product", (q) => q.eq("productId", productId))
+                .first();
+            if (!remaining) {
+                await ctx.db.delete(productId);
             }
         }
     },
@@ -143,7 +126,6 @@ export const deleteMarketplaceProductsByOrder = internalMutation({
         orderDate: v.number(),
     },
     handler: async (ctx, args) => {
-        // Find all marketplace products for this order
         const existingMarketplaceProducts = await ctx.db
             .query("marketplaceProducts")
             .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
@@ -155,10 +137,8 @@ export const deleteMarketplaceProductsByOrder = internalMutation({
             )
             .collect();
 
-        // Track product IDs to check if they should be deleted
         const productIdsToCheck = new Set<Id<"products">>();
 
-        // Delete all marketplace products for this order
         for (const mp of existingMarketplaceProducts) {
             if (mp.productId) {
                 productIdsToCheck.add(mp.productId);
@@ -166,14 +146,12 @@ export const deleteMarketplaceProductsByOrder = internalMutation({
             await ctx.db.delete(mp._id);
         }
 
-        // Delete products that no longer have any marketplace products
         for (const productId of productIdsToCheck) {
-            const remainingMarketplaceProducts = await ctx.db
+            const remaining = await ctx.db
                 .query("marketplaceProducts")
                 .withIndex("by_product", (q) => q.eq("productId", productId))
-                .collect();
-
-            if (remainingMarketplaceProducts.length === 0) {
+                .first();
+            if (!remaining) {
                 await ctx.db.delete(productId);
             }
         }
@@ -198,15 +176,11 @@ async function upsertPendingMarketplaceImportHandler(
         orderTimestamp: number;
         fulfillmentTimestamp?: number;
         orderId: string;
-        OrderId?: string;
         reasonCode: string;
         reasonMessage: string;
         rawFinancialEventsStatus?: {
-            hasShipmentFinancialEvents: boolean;
-            hasShipmentEventList: boolean;
-            shipmentEventListLength: number;
-            hasAdjustmentEventList: boolean;
-            adjustmentEventListLength: number;
+            financeStatusClassification?: string;
+            suggestFinancesV2024Fallback?: boolean;
             pagesFetched: number;
             usedEstimatedFees: boolean;
             missingFulfillmentDate: boolean;
@@ -231,7 +205,6 @@ async function upsertPendingMarketplaceImportHandler(
         for (const existingPendingImport of existingPendingImports) {
             await ctx.db.patch(existingPendingImport._id, {
                 status: "pending",
-                OrderId: args.OrderId,
                 name: args.name,
                 quantity: args.quantity,
                 price: args.price,
@@ -257,7 +230,6 @@ async function upsertPendingMarketplaceImportHandler(
         marketplace: args.marketplace,
         status: "pending",
         orderId: args.orderId,
-        OrderId: args.OrderId,
         sku: args.sku,
         name: args.name,
         quantity: args.quantity,
@@ -313,9 +285,6 @@ async function resolvePendingMarketplaceImportHandler(
     }
 }
 
-/**
- * Shared handler logic for upserting marketplace products
- */
 async function upsertMarketplaceProductHandler(
     ctx: any,
     args: {
@@ -333,12 +302,9 @@ async function upsertMarketplaceProductHandler(
         orderTimestamp: number;
         fulfillmentTimestamp?: number;
         orderId: string;
-        OrderId: string;
         updateExisting?: boolean;
     }
 ) {
-    // Skip orders with 0 shipping cost only if they haven't been fulfilled yet
-    // If fulfillmentTimestamp exists, the order was shipped (even if shipping was reversed/refunded)
     if (args.shipping === 0 && !args.fulfillmentTimestamp) {
         return;
     }
@@ -365,8 +331,6 @@ async function upsertMarketplaceProductHandler(
         });
     }
 
-    // Check if marketplace product already exists for this order, date, and SKU
-    // Note: eBay handles updates differently (deletes first, then inserts), so skip update logic for eBay
     if (args.updateExisting && args.orderId && args.marketplace !== "Ebay") {
         const existingMarketplaceProducts = await ctx.db
             .query("marketplaceProducts")
@@ -382,8 +346,6 @@ async function upsertMarketplaceProductHandler(
             .collect();
 
         if (existingMarketplaceProducts.length > 0) {
-            // Update all matching marketplace products (not just the first one)
-            // This ensures all items/units in an order get their fulfillment dates updated
             for (const existingMp of existingMarketplaceProducts) {
                 await ctx.db.patch(existingMp._id, {
                     productId,
@@ -396,7 +358,6 @@ async function upsertMarketplaceProductHandler(
                     shippingPercentage: args.shippingPercentage,
                     buyerPaidShipping: args.buyerPaidShipping,
                     fulfillmentDate: args.fulfillmentTimestamp,
-                    OrderId: args.OrderId,
                     name: args.name,
                 });
             }
@@ -414,7 +375,6 @@ async function upsertMarketplaceProductHandler(
         }
     }
 
-    // Insert new marketplace product
     await ctx.db.insert("marketplaceProducts", {
         productId,
         marketplace: args.marketplace,
@@ -430,7 +390,6 @@ async function upsertMarketplaceProductHandler(
         fulfillmentDate: args.fulfillmentTimestamp,
         userId: args.userId,
         orderId: args.orderId,
-        OrderId: args.OrderId,
         sku: args.sku,
         name: args.name,
     });
@@ -447,35 +406,11 @@ async function upsertMarketplaceProductHandler(
     }
 }
 
-/**
- * Unified function to upsert marketplace products from any marketplace
- */
 export const upsertMarketplaceProduct = internalMutation({
     args: {
         userId: v.id("users"),
-        marketplace: v.union(
-            v.literal("Ebay"),
-            v.literal("Amazon"),
-            v.literal("Shopify"),
-            v.literal("TikTok")
-        ),
-        sku: v.string(),
-        name: v.string(),
-        price: v.number(),
-        fees: v.number(),
-        fees_breakdown: v.optional(
-            v.array(v.array(v.union(v.string(), v.number())))
-        ),
-        shipping: v.number(),
-        shipping_breakdown: v.optional(
-            v.array(v.array(v.union(v.string(), v.number())))
-        ),
-        shippingPercentage: v.optional(v.number()),
-        buyerPaidShipping: v.optional(v.number()),
-        orderTimestamp: v.number(),
-        fulfillmentTimestamp: v.optional(v.number()),
-        orderId: v.string(),
-        OrderId: v.string(),
+        marketplace: productMarketplaceValidator,
+        ...marketplaceLineItemFields,
         updateExisting: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
@@ -486,44 +421,12 @@ export const upsertMarketplaceProduct = internalMutation({
 export const upsertPendingMarketplaceImport = internalMutation({
     args: {
         userId: v.id("users"),
-        marketplace: v.union(
-            v.literal("Amazon"),
-            v.literal("Ebay"),
-            v.literal("Shopify"),
-            v.literal("TikTok")
-        ),
-        sku: v.string(),
-        name: v.string(),
+        marketplace: productMarketplaceValidator,
         quantity: v.number(),
-        price: v.number(),
-        fees: v.number(),
-        fees_breakdown: v.optional(
-            v.array(v.array(v.union(v.string(), v.number())))
-        ),
-        shipping: v.number(),
-        shipping_breakdown: v.optional(
-            v.array(v.array(v.union(v.string(), v.number())))
-        ),
-        shippingPercentage: v.optional(v.number()),
-        buyerPaidShipping: v.optional(v.number()),
-        orderTimestamp: v.number(),
-        fulfillmentTimestamp: v.optional(v.number()),
-        orderId: v.string(),
-        OrderId: v.optional(v.string()),
+        ...marketplaceLineItemFields,
         reasonCode: v.string(),
         reasonMessage: v.string(),
-        rawFinancialEventsStatus: v.optional(
-            v.object({
-                hasShipmentFinancialEvents: v.boolean(),
-                hasShipmentEventList: v.boolean(),
-                shipmentEventListLength: v.number(),
-                hasAdjustmentEventList: v.boolean(),
-                adjustmentEventListLength: v.number(),
-                pagesFetched: v.number(),
-                usedEstimatedFees: v.boolean(),
-                missingFulfillmentDate: v.boolean(),
-            })
-        ),
+        rawFinancialEventsStatus: v.optional(rawFinancialEventsStatusValidator),
         lastAttemptAt: v.number(),
     },
     handler: async (ctx, args) => {
@@ -534,12 +437,7 @@ export const upsertPendingMarketplaceImport = internalMutation({
 export const resolvePendingMarketplaceImport = internalMutation({
     args: {
         userId: v.id("users"),
-        marketplace: v.union(
-            v.literal("Amazon"),
-            v.literal("Ebay"),
-            v.literal("Shopify"),
-            v.literal("TikTok")
-        ),
+        marketplace: productMarketplaceValidator,
         sku: v.string(),
         orderTimestamp: v.number(),
         orderId: v.string(),

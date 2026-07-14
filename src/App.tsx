@@ -13,15 +13,33 @@ export default function App() {
     const [selectedView, setSelectedView] = useState("products");
     const completeEbayOAuth = useMutation(api.ebayMutations.completeOAuthFlow);
     const completeTiktokOAuth = useMutation(api.tiktokMutations.completeOAuthFlow);
+    const completeShopifyOAuth = useMutation(api.shopifyMutations.completeOAuthFlow);
     const { selectionBox, copiedState } = useAltDragSelection();
 
     // Check for OAuth callback success/error
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        if (params.get("shopify_connected") === "true") {
-            toast.success("Shopify store connected successfully!");
-            // Clean up URL
-            window.history.replaceState({}, "", window.location.pathname);
+
+        const shopifyCode = params.get("shopify_code");
+        const shopifyShop = params.get("shop");
+        if (shopifyCode && shopifyShop) {
+            completeShopifyOAuth({ code: shopifyCode, shop: shopifyShop })
+                .then(() => {
+                    toast.success("Shopify store connected successfully!");
+                    window.history.replaceState(
+                        {},
+                        "",
+                        window.location.pathname
+                    );
+                })
+                .catch((error) => {
+                    toast.error(`Shopify connection failed: ${error.message}`);
+                    window.history.replaceState(
+                        {},
+                        "",
+                        window.location.pathname
+                    );
+                });
         }
 
         // Handle eBay OAuth
@@ -73,7 +91,7 @@ export default function App() {
             toast.error(`Connection failed: ${decodeURIComponent(error)}`);
             window.history.replaceState({}, "", window.location.pathname);
         }
-    }, [completeEbayOAuth, completeTiktokOAuth]);
+    }, [completeEbayOAuth, completeTiktokOAuth, completeShopifyOAuth]);
 
     return (
         <SidebarProvider>

@@ -68,11 +68,12 @@ http.route({
     }),
 });
 
-// Shopify OAuth - Callback endpoint
+// Shopify OAuth - Callback endpoint (token exchange happens via authenticated mutation)
 http.route({
     path: "/shopify/callback",
     method: "GET",
-    handler: httpAction(async (ctx, req) => {
+    handler: httpAction(async (_ctx, req) => {
+        const frontendUrl = process.env.VITE_URL || "http://localhost:5173";
         try {
             const url = new URL(req.url);
             const code = url.searchParams.get("code");
@@ -88,27 +89,19 @@ http.route({
                 );
             }
 
-            await ctx.runAction(internal.shopifyOAuth.exchangeCodeForToken, {
-                code,
-                shop,
-                redirectUri: `${url.origin}/shopify/callback`,
-            });
-
-            // Redirect to the frontend URL (Vite dev server or production)
-            const frontendUrl = process.env.VITE_URL || "http://localhost:5173";
             return new Response(null, {
                 status: 302,
-                headers: { Location: `${frontendUrl}/?shopify_connected=true` },
+                headers: {
+                    Location: `${frontendUrl}/?shopify_code=${encodeURIComponent(code)}&shop=${encodeURIComponent(shop)}`,
+                },
             });
         } catch (error: any) {
-            const log = {
-                endpoint: "/shopify/callback",
-                step: "callback",
-                error: error.message || String(error),
-                timestamp: new Date().toISOString(),
-            };
-            console.error(JSON.stringify(log));
-            const frontendUrl = process.env.VITE_URL || "http://localhost:5173";
+            console.error(
+                JSON.stringify({
+                    endpoint: "/shopify/callback",
+                    error: error.message || String(error),
+                })
+            );
             return new Response(null, {
                 status: 302,
                 headers: {
