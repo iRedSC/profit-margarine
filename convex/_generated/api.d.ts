@@ -17,6 +17,7 @@ import type * as ebayRouter from "../ebayRouter.js";
 import type * as ebayRoutes from "../ebayRoutes.js";
 import type * as http from "../http.js";
 import type * as importCosts from "../importCosts.js";
+import type * as importData from "../importData.js";
 import type * as marketplaceConnections from "../marketplaceConnections.js";
 import type * as marketplaceUtils from "../marketplaceUtils.js";
 import type * as productResync from "../productResync.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   ebayRoutes: typeof ebayRoutes;
   http: typeof http;
   importCosts: typeof importCosts;
+  importData: typeof importData;
   marketplaceConnections: typeof marketplaceConnections;
   marketplaceUtils: typeof marketplaceUtils;
   productResync: typeof productResync;

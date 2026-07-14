@@ -9,15 +9,23 @@ import { Loader2 } from "lucide-react";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Progress } from "./ui/progress";
 import { SyncOrderModal } from "./SyncOrderModal";
+import {
+    IMPORT_CHUNK_SIZE,
+    parseDataRowsFromSheet,
+    productRowsToExportSheet,
+} from "../lib/dataImportExport";
 
 export function Header() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
     } | null>(null);
+    const [importMenuOpen, setImportMenuOpen] = useState(false);
     const [isSyncOrderModalOpen, setIsSyncOrderModalOpen] = useState(false);
+    const products = useQuery(api.products.listProducts) || [];
     const activeSyncs = useQuery(api.products.getSyncStatus) || [];
     const syncAmazonOrders = useMutation(api.products.syncAmazonOrders);
     const syncEbayOrders = useMutation(api.products.syncEbayOrders);
@@ -31,12 +39,17 @@ export function Header() {
         api.products.syncEbayOrdersOneYear
     );
     const syncShopifyOrdersOneYear = useMutation(
-        api.products.syncShopifyOrdersOneYear
+        api.shopifyMutations.syncShopifyOrdersOneYear
     );
     const resyncAllOrders = useMutation(api.products.resyncAllOrders);
     const cancelAllActiveSyncs = useMutation(api.products.cancelAllActiveSyncs);
     const importProductCosts = useMutation(api.importCosts.importProductCosts);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const importMarketplaceProducts = useMutation(
+        api.importData.importMarketplaceProducts
+    );
+    const costsFileInputRef = useRef<HTMLInputElement>(null);
+    const dataFileInputRef = useRef<HTMLInputElement>(null);
+    const importMenuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const handleClickOutside = () => {
@@ -48,6 +61,21 @@ export function Header() {
                 document.removeEventListener("click", handleClickOutside);
         }
     }, [contextMenu]);
+
+    useEffect(() => {
+        if (!importMenuOpen) return;
+        const handleClickOutside = (event: MouseEvent) => {
+            if (
+                importMenuRef.current &&
+                !importMenuRef.current.contains(event.target as Node)
+            ) {
+                setImportMenuOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () =>
+            document.removeEventListener("mousedown", handleClickOutside);
+    }, [importMenuOpen]);
 
     const handleSyncAll = async (updateExisting: boolean = false) => {
         setIsSyncing(true);
@@ -93,11 +121,29 @@ export function Header() {
         setContextMenu({ x: e.clientX, y: e.clientY });
     };
 
-    const handleImportClick = () => {
-        fileInputRef.current?.click();
+    const handleExportData = () => {
+        if (products.length === 0) {
+            toast.error("No data rows to export");
+            return;
+        }
+
+        setIsExporting(true);
+        try {
+            const sheetRows = productRowsToExportSheet(products);
+            const worksheet = XLSX.utils.json_to_sheet(sheetRows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+            const dateStamp = new Date().toISOString().slice(0, 10);
+            XLSX.writeFile(workbook, `profitability-data-${dateStamp}.xlsx`);
+            toast.success(`Exported ${products.length} data rows`);
+        } catch (error: any) {
+            toast.error(`Export failed: ${error.message || "Unknown error"}`);
+        } finally {
+            setIsExporting(false);
+        }
     };
 
-    const handleFileUpload = async (
+    const handleCostsFileUpload = async (
         event: React.ChangeEvent<HTMLInputElement>
     ) => {
         const file = event.target.files?.[0];
@@ -127,20 +173,20 @@ export function Header() {
                 return;
             }
 
-            const products = jsonData
+            const costProducts = jsonData
                 .map((row: any) => ({
                     sku: String(row[skuHeader] || "").trim(),
                     cost: parseFloat(row[costHeader]),
                 }))
                 .filter((p) => p.sku && !isNaN(p.cost));
 
-            if (products.length === 0) {
+            if (costProducts.length === 0) {
                 toast.error("No valid products found in the file");
                 setIsImporting(false);
                 return;
             }
 
-            const result = await importProductCosts({ products });
+            const result = await importProductCosts({ products: costProducts });
             toast.success(
                 `Import complete! Updated: ${result.updated}, Created: ${result.created}`
             );
@@ -148,8 +194,57 @@ export function Header() {
             toast.error(`Import failed: ${error.message || "Unknown error"}`);
         } finally {
             setIsImporting(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = "";
+            if (costsFileInputRef.current) {
+                costsFileInputRef.current.value = "";
+            }
+        }
+    };
+
+    const handleDataFileUpload = async (
+        event: React.ChangeEvent<HTMLInputElement>
+    ) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setIsImporting(true);
+
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data);
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(
+                firstSheet
+            ) as Record<string, unknown>[];
+
+            const rows = parseDataRowsFromSheet(jsonData);
+
+            if (rows.length === 0) {
+                toast.error("No valid data rows found in the file");
+                setIsImporting(false);
+                return;
+            }
+
+            let updated = 0;
+            let created = 0;
+
+            for (let i = 0; i < rows.length; i += IMPORT_CHUNK_SIZE) {
+                const chunk = rows.slice(i, i + IMPORT_CHUNK_SIZE);
+                const result = await importMarketplaceProducts({ rows: chunk });
+                updated += result.updated;
+                created += result.created;
+            }
+
+            toast.success(
+                `Data import complete! Updated: ${updated}, Created: ${created}`
+            );
+        } catch (error: any) {
+            toast.error(
+                `Data import failed: ${error.message || "Unknown error"}`
+            );
+        } finally {
+            setIsImporting(false);
+            if (dataFileInputRef.current) {
+                dataFileInputRef.current.value = "";
             }
         }
     };
@@ -267,29 +362,77 @@ export function Header() {
                         )}
                     </div>
 
+                    <Button
+                        onClick={handleExportData}
+                        disabled={isExporting || isImporting}
+                        variant="outline"
+                    >
+                        {isExporting ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Exporting...
+                            </>
+                        ) : (
+                            "Export Data"
+                        )}
+                    </Button>
+
                     <input
-                        ref={fileInputRef}
+                        ref={costsFileInputRef}
                         type="file"
                         accept=".csv,.xlsx,.xls"
                         onChange={(e) => {
-                            void handleFileUpload(e);
+                            void handleCostsFileUpload(e);
                         }}
                         className="hidden"
                     />
-                    <Button
-                        onClick={handleImportClick}
-                        disabled={isImporting}
-                        variant="default"
-                    >
-                        {isImporting ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Importing...
-                            </>
-                        ) : (
-                            "Import Costs"
+                    <input
+                        ref={dataFileInputRef}
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        onChange={(e) => {
+                            void handleDataFileUpload(e);
+                        }}
+                        className="hidden"
+                    />
+                    <div className="relative" ref={importMenuRef}>
+                        <Button
+                            onClick={() => setImportMenuOpen((open) => !open)}
+                            disabled={isImporting}
+                            variant="default"
+                        >
+                            {isImporting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Importing...
+                                </>
+                            ) : (
+                                "Import"
+                            )}
+                        </Button>
+                        {importMenuOpen && !isImporting && (
+                            <div className="absolute right-0 top-full mt-1 rounded-md border bg-popover text-popover-foreground shadow-md py-1 z-50 min-w-[160px]">
+                                <button
+                                    onClick={() => {
+                                        setImportMenuOpen(false);
+                                        dataFileInputRef.current?.click();
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                                >
+                                    Import Data
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setImportMenuOpen(false);
+                                        costsFileInputRef.current?.click();
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                                >
+                                    Import Costs
+                                </button>
+                            </div>
                         )}
-                    </Button>
+                    </div>
 
                     <SignOutButton />
                 </div>

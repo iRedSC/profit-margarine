@@ -61,9 +61,20 @@ npm run dev
 
 Click the "Sync All" button to fetch orders from all configured marketplaces.
 
+### Exporting Data
+
+1. Click "Export Data"
+2. Download an Excel file of all profitability table rows (SKU, marketplace, price, cost, fees, shipping, dates, order IDs, etc.)
+
+### Importing Data
+
+1. Click "Import" → "Import Data"
+2. Upload a CSV or Excel file exported from this app (or with the same columns)
+3. Rows are matched by `id` when present, otherwise by marketplace + orderId + SKU + orderDate, then updated or created
+
 ### Importing Costs
 
-1. Click "Import Costs"
+1. Click "Import" → "Import Costs"
 2. Upload a CSV or Excel file with columns for SKU and Cost
 3. The system will automatically match SKUs and update costs
 
