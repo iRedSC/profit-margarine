@@ -1,0 +1,525 @@
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ProductFilters } from "./ProductFilters";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
+import { formatCurrency } from "../lib/productUtils";
+import { searchProduct } from "../lib/searchUtils";
+import {
+  buildDailyStats,
+  buildMarketplaceStats,
+  buildTopLossItems,
+  buildTopSoldItems,
+  enrichProducts,
+} from "../lib/statsUtils";
+
+const CHART_COLORS = {
+  profit: "hsl(142 76% 36%)",
+  revenue: "hsl(217 91% 60%)",
+  cost: "hsl(215 16% 47%)",
+  margin: "hsl(38 92% 45%)",
+  marketplace: "hsl(222 47% 25%)",
+};
+
+function currencyTooltipValue(value: number) {
+  return `$${formatCurrency(value)}`;
+}
+
+function ChartEmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex h-[280px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+      {message}
+    </div>
+  );
+}
+
+function RankingTable({
+  title,
+  description,
+  rows,
+  emptyMessage,
+  mode,
+}: {
+  title: string;
+  description: string;
+  rows: ReturnType<typeof buildTopSoldItems>;
+  emptyMessage: string;
+  mode: "sold" | "loss";
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <div className="flex h-[280px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+            {emptyMessage}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 pr-3 font-medium">#</th>
+                  <th className="pb-2 pr-3 font-medium">Item</th>
+                  {mode === "sold" ? (
+                    <>
+                      <th className="pb-2 pr-3 font-medium text-right">Units</th>
+                      <th className="pb-2 pr-3 font-medium text-right">Revenue</th>
+                      <th className="pb-2 font-medium text-right">Profit</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="pb-2 pr-3 font-medium text-right">Losses</th>
+                      <th className="pb-2 pr-3 font-medium text-right">Total Loss</th>
+                      <th className="pb-2 font-medium text-right">Net Profit</th>
+                    </>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={row.key} className="border-b last:border-0">
+                    <td className="py-3 pr-3 text-muted-foreground">{index + 1}</td>
+                    <td className="py-3 pr-3">
+                      <div className="font-medium leading-tight">{row.name}</div>
+                      <div className="text-xs text-muted-foreground">{row.sku}</div>
+                    </td>
+                    {mode === "sold" ? (
+                      <>
+                        <td className="py-3 pr-3 text-right tabular-nums">
+                          {row.unitsSold}
+                        </td>
+                        <td className="py-3 pr-3 text-right tabular-nums">
+                          ${formatCurrency(row.revenue)}
+                        </td>
+                        <td
+                          className={`py-3 text-right tabular-nums font-medium ${
+                            row.profit < 0 ? "text-destructive" : "text-success"
+                          }`}
+                        >
+                          ${formatCurrency(row.profit)}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-3 pr-3 text-right tabular-nums font-medium text-destructive">
+                          {row.lossCount}
+                          {row.lossCount > 1 ? (
+                            <span className="ml-1 text-xs font-normal text-destructive/70">
+                              orders
+                            </span>
+                          ) : (
+                            <span className="ml-1 text-xs font-normal text-destructive/70">
+                              order
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 pr-3 text-right tabular-nums text-destructive">
+                          ${formatCurrency(row.totalLoss)}
+                        </td>
+                        <td
+                          className={`py-3 text-right tabular-nums font-medium ${
+                            row.profit < 0 ? "text-destructive" : "text-success"
+                          }`}
+                        >
+                          ${formatCurrency(row.profit)}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function StatsDashboard() {
+  const productsQuery = useQuery(api.products.listProducts);
+  const products = productsQuery ?? [];
+  const productsLoading = productsQuery === undefined;
+
+  const [skuFilterInput, setSkuFilterInput] = useState("");
+  const [skuFilter, setSkuFilter] = useState("");
+  const [marketplaceFilters, setMarketplaceFilters] = useState<Set<string>>(
+    new Set()
+  );
+  const [dateRangeStart, setDateRangeStart] = useState<number | null>(() => {
+    return getDateRange("last30Days").start;
+  });
+  const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(() => {
+    return getDateRange("last30Days").end;
+  });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSkuFilter(skuFilterInput);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [skuFilterInput]);
+
+  const toggleMarketplaceFilter = (marketplace: string) => {
+    const next = new Set(marketplaceFilters);
+    if (next.has(marketplace)) {
+      next.delete(marketplace);
+    } else {
+      next.add(marketplace);
+    }
+    setMarketplaceFilters(next);
+  };
+
+  const setDateRange = (rangeType: DateRangeType) => {
+    const range = getDateRange(rangeType);
+    setDateRangeStart(range.start);
+    setDateRangeEnd(range.end);
+  };
+
+  const clearFilters = () => {
+    setSkuFilterInput("");
+    setSkuFilter("");
+    setMarketplaceFilters(new Set());
+    setDateRange("last30Days");
+  };
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((product) => {
+      if (skuFilter && !searchProduct(skuFilter, product.sku, product.name)) {
+        return false;
+      }
+      if (
+        marketplaceFilters.size > 0 &&
+        !marketplaceFilters.has(product.marketplace)
+      ) {
+        return false;
+      }
+      const filterDate = product.fulfillmentDate ?? product.orderDate;
+      if (dateRangeStart !== null && filterDate < dateRangeStart) {
+        return false;
+      }
+      if (dateRangeEnd !== null && filterDate > dateRangeEnd) {
+        return false;
+      }
+      return true;
+    });
+  }, [products, skuFilter, marketplaceFilters, dateRangeStart, dateRangeEnd]);
+
+  const enriched = useMemo(
+    () => enrichProducts(filteredProducts),
+    [filteredProducts]
+  );
+  const dailyStats = useMemo(() => buildDailyStats(enriched), [enriched]);
+  const marketplaceStats = useMemo(
+    () => buildMarketplaceStats(enriched),
+    [enriched]
+  );
+  const topSold = useMemo(() => buildTopSoldItems(enriched), [enriched]);
+  const topLoss = useMemo(() => buildTopLossItems(enriched), [enriched]);
+
+  const summary = useMemo(() => {
+    const withCost = enriched.filter((p) => p.hasCost);
+    const revenue = withCost.reduce((sum, p) => sum + p.price, 0);
+    const profit = withCost.reduce((sum, p) => sum + p.profit, 0);
+    const lossCount = withCost.filter((p) => p.profit < 0).length;
+    return {
+      revenue,
+      profit,
+      margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+      orders: enriched.length,
+      lossCount,
+    };
+  }, [enriched]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">Stats</h2>
+        <p className="text-muted-foreground">
+          Daily profit trends, revenue vs cost, and item rankings for the
+          selected period.
+        </p>
+      </div>
+
+      <ProductFilters
+        skuFilter={skuFilterInput}
+        setSkuFilter={setSkuFilterInput}
+        marketplaceFilters={marketplaceFilters}
+        toggleMarketplaceFilter={toggleMarketplaceFilter}
+        dateRangeStart={dateRangeStart}
+        dateRangeEnd={dateRangeEnd}
+        setDateRange={setDateRange}
+        clearFilters={clearFilters}
+        title="Filter Stats"
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Revenue</CardDescription>
+            <CardTitle className="text-2xl text-info">
+              ${formatCurrency(summary.revenue)}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Profit</CardDescription>
+            <CardTitle
+              className={`text-2xl ${
+                summary.profit < 0 ? "text-destructive" : "text-success"
+              }`}
+            >
+              ${formatCurrency(summary.profit)}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Avg Margin</CardDescription>
+            <CardTitle
+              className={`text-2xl ${
+                summary.margin < 0 ? "text-destructive" : "text-success"
+              }`}
+            >
+              {summary.margin.toFixed(1)}%
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Orders / Losses</CardDescription>
+            <CardTitle className="text-2xl">
+              {summary.orders}{" "}
+              <span className="text-base font-normal text-destructive">
+                / {summary.lossCount}
+              </span>
+            </CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      {productsLoading ? (
+        <div className="flex justify-center items-center min-h-[200px]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Profit per Day</CardTitle>
+                <CardDescription>
+                  Daily net profit from orders with cost data
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dailyStats.length === 0 ? (
+                  <ChartEmptyState message="No daily profit data for this range." />
+                ) : (
+                  <div className="h-[280px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={dailyStats}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(v) => `$${v}`}
+                        />
+                        <Tooltip
+                          formatter={(value: number) => [
+                            currencyTooltipValue(value),
+                            "Profit",
+                          ]}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="profit"
+                          stroke={CHART_COLORS.profit}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue vs Cost per Day</CardTitle>
+                <CardDescription>
+                  Gross revenue compared to product cost by day
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dailyStats.length === 0 ? (
+                  <ChartEmptyState message="No revenue/cost data for this range." />
+                ) : (
+                  <div className="h-[280px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={dailyStats}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(v) => `$${v}`}
+                        />
+                        <Tooltip
+                          formatter={(value: number, name: string) => [
+                            currencyTooltipValue(value),
+                            name === "revenue" ? "Revenue" : "Cost",
+                          ]}
+                        />
+                        <Legend />
+                        <Line
+                          type="monotone"
+                          dataKey="revenue"
+                          name="Revenue"
+                          stroke={CHART_COLORS.revenue}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="cost"
+                          name="Cost"
+                          stroke={CHART_COLORS.cost}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Margin % Trend</CardTitle>
+                <CardDescription>
+                  Average daily margin across priced orders
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dailyStats.length === 0 ? (
+                  <ChartEmptyState message="No margin data for this range." />
+                ) : (
+                  <div className="h-[280px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={dailyStats}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(v) => `${v}%`}
+                        />
+                        <Tooltip
+                          formatter={(value: number) => [
+                            `${value.toFixed(1)}%`,
+                            "Margin",
+                          ]}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="margin"
+                          stroke={CHART_COLORS.margin}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Profit by Marketplace</CardTitle>
+                <CardDescription>
+                  Where profit (and losses) are concentrating
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {marketplaceStats.length === 0 ? (
+                  <ChartEmptyState message="No marketplace profit data for this range." />
+                ) : (
+                  <div className="h-[280px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={marketplaceStats}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                        <XAxis dataKey="marketplace" tick={{ fontSize: 12 }} />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(v) => `$${v}`}
+                        />
+                        <Tooltip
+                          formatter={(value: number) => [
+                            currencyTooltipValue(value),
+                            "Profit",
+                          ]}
+                          labelFormatter={(label, payload) => {
+                            const lossCount =
+                              payload?.[0]?.payload?.lossCount ?? 0;
+                            return `${label} · ${lossCount} loss order${
+                              lossCount === 1 ? "" : "s"
+                            }`;
+                          }}
+                        />
+                        <Bar
+                          dataKey="profit"
+                          name="Profit"
+                          fill={CHART_COLORS.marketplace}
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <RankingTable
+              title="Top Sold Items"
+              description="Ranked by units sold in the selected period"
+              rows={topSold}
+              emptyMessage="No sold items in this range."
+              mode="sold"
+            />
+            <RankingTable
+              title="Top Loss Items"
+              description="Ranked by number of losing orders, then total loss dollars"
+              rows={topLoss}
+              emptyMessage="No loss-making items in this range."
+              mode="loss"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

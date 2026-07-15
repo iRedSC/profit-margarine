@@ -7,7 +7,7 @@ import { EbayConnect } from "./EbayConnect";
 import { ShopifyConnect } from "./ShopifyConnect";
 import { TiktokConnect } from "./TiktokConnect";
 import { PendingAmazonImportsCard } from "./PendingAmazonImportsCard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { StatsDashboard } from "./StatsDashboard";
 
 type ContentProps = {
     selectedView: string;
@@ -36,6 +36,7 @@ export function Content({ selectedView }: ContentProps) {
                         <ProductAnalyzer />
                     </div>
                 )}
+                {selectedView === "stats" && <StatsDashboard />}
                 {selectedView === "connections" && (
                     <div className="space-y-6">
                         <div>
