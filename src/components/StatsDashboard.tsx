@@ -55,6 +55,60 @@ function ChartEmptyState({ message }: { message: string }) {
   );
 }
 
+function ChartGranularityToggle({
+  value,
+  onChange,
+}: {
+  value: ChartGranularity;
+  onChange: (value: ChartGranularity) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {GRANULARITY_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={`inline-flex items-center justify-center rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+            value === option.value
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PeriodChartHeader({
+  title,
+  description,
+  granularity,
+  onGranularityChange,
+}: {
+  title: string;
+  description: string;
+  granularity: ChartGranularity;
+  onGranularityChange: (value: ChartGranularity) => void;
+}) {
+  return (
+    <CardHeader className="space-y-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <CardTitle>{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </div>
+        <ChartGranularityToggle
+          value={granularity}
+          onChange={onGranularityChange}
+        />
+      </div>
+    </CardHeader>
+  );
+}
+
 function RankingTable({
   title,
   description,
@@ -178,7 +232,11 @@ export function StatsDashboard() {
   const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(() => {
     return getDateRange("last30Days").end;
   });
-  const [chartGranularity, setChartGranularity] =
+  const [profitGranularity, setProfitGranularity] =
+    useState<ChartGranularity>("day");
+  const [revenueGranularity, setRevenueGranularity] =
+    useState<ChartGranularity>("day");
+  const [marginGranularity, setMarginGranularity] =
     useState<ChartGranularity>("day");
 
   useEffect(() => {
@@ -209,7 +267,9 @@ export function StatsDashboard() {
     setSkuFilter("");
     setMarketplaceFilters(new Set());
     setDateRange("last30Days");
-    setChartGranularity("day");
+    setProfitGranularity("day");
+    setRevenueGranularity("day");
+    setMarginGranularity("day");
   };
 
   const filteredProducts = useMemo(() => {
@@ -238,12 +298,18 @@ export function StatsDashboard() {
     () => enrichProducts(filteredProducts),
     [filteredProducts]
   );
-  const periodStats = useMemo(
-    () => buildPeriodStats(enriched, chartGranularity),
-    [enriched, chartGranularity]
+  const profitStats = useMemo(
+    () => buildPeriodStats(enriched, profitGranularity),
+    [enriched, profitGranularity]
   );
-  const periodWord = granularityLabel(chartGranularity);
-  const periodAdjective = granularityAdjective(chartGranularity);
+  const revenueStats = useMemo(
+    () => buildPeriodStats(enriched, revenueGranularity),
+    [enriched, revenueGranularity]
+  );
+  const marginStats = useMemo(
+    () => buildPeriodStats(enriched, marginGranularity),
+    [enriched, marginGranularity]
+  );
   const marketplaceStats = useMemo(
     () => buildMarketplaceStats(enriched),
     [enriched]
@@ -286,33 +352,6 @@ export function StatsDashboard() {
         clearFilters={clearFilters}
         title="Filter Stats"
       />
-
-      <div className="rounded-lg border bg-card p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm font-medium">Chart grouping</div>
-            <p className="text-sm text-muted-foreground">
-              Group trend charts by order hour, day, or week
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {GRANULARITY_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setChartGranularity(option.value)}
-                className={`inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  chartGranularity === option.value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -368,21 +407,21 @@ export function StatsDashboard() {
         <>
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
-              <CardHeader>
-                <CardTitle>Profit per {periodWord}</CardTitle>
-                <CardDescription>
-                  Net profit by order {periodWord} (orders with cost data)
-                </CardDescription>
-              </CardHeader>
+              <PeriodChartHeader
+                title={`Profit per ${granularityLabel(profitGranularity)}`}
+                description={`Net profit by order ${granularityLabel(profitGranularity)} (orders with cost data)`}
+                granularity={profitGranularity}
+                onGranularityChange={setProfitGranularity}
+              />
               <CardContent>
-                {periodStats.length === 0 ? (
+                {profitStats.length === 0 ? (
                   <ChartEmptyState
-                    message={`No ${periodAdjective} profit data for this range.`}
+                    message={`No ${granularityAdjective(profitGranularity)} profit data for this range.`}
                   />
                 ) : (
                   <div className="h-[280px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={periodStats}>
+                      <LineChart data={profitStats}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                         <XAxis
                           dataKey="label"
@@ -416,19 +455,19 @@ export function StatsDashboard() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Revenue vs Cost per {periodWord}</CardTitle>
-                <CardDescription>
-                  Gross revenue compared to product cost by order {periodWord}
-                </CardDescription>
-              </CardHeader>
+              <PeriodChartHeader
+                title={`Revenue vs Cost per ${granularityLabel(revenueGranularity)}`}
+                description={`Gross revenue compared to product cost by order ${granularityLabel(revenueGranularity)}`}
+                granularity={revenueGranularity}
+                onGranularityChange={setRevenueGranularity}
+              />
               <CardContent>
-                {periodStats.length === 0 ? (
+                {revenueStats.length === 0 ? (
                   <ChartEmptyState message="No revenue/cost data for this range." />
                 ) : (
                   <div className="h-[280px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={periodStats}>
+                      <LineChart data={revenueStats}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                         <XAxis
                           dataKey="label"
@@ -471,19 +510,19 @@ export function StatsDashboard() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Margin % Trend</CardTitle>
-                <CardDescription>
-                  Average margin per {periodWord} across priced orders
-                </CardDescription>
-              </CardHeader>
+              <PeriodChartHeader
+                title="Margin % Trend"
+                description={`Average margin per ${granularityLabel(marginGranularity)} across priced orders`}
+                granularity={marginGranularity}
+                onGranularityChange={setMarginGranularity}
+              />
               <CardContent>
-                {periodStats.length === 0 ? (
+                {marginStats.length === 0 ? (
                   <ChartEmptyState message="No margin data for this range." />
                 ) : (
                   <div className="h-[280px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={periodStats}>
+                      <LineChart data={marginStats}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                         <XAxis
                           dataKey="label"
