@@ -1,16 +1,17 @@
 import { calculateMargin, calculateProfit } from "./productUtils";
 import { Product } from "../types/product";
 
+export type ChartGranularity = "hour" | "day" | "week";
+
 export type EnrichedProduct = Product & {
   netShipping: number;
   profit: number;
   margin: number;
   hasCost: boolean;
-  dayKey: string;
 };
 
-export type DailyStats = {
-  date: string;
+export type PeriodStats = {
+  key: string;
   label: string;
   revenue: number;
   cost: number;
@@ -20,6 +21,9 @@ export type DailyStats = {
   margin: number;
   orderCount: number;
 };
+
+/** @deprecated Use PeriodStats */
+export type DailyStats = PeriodStats;
 
 export type MarketplaceStats = {
   marketplace: string;
@@ -47,21 +51,106 @@ function getNetShipping(product: Product): number {
     : product.shipping;
 }
 
-function toDayKey(timestamp: number): string {
+/** Saturday start-of-week, matching dateRangeUtils */
+function getWeekStart(date: Date): Date {
+  const start = new Date(date);
+  const day = start.getDay();
+  const daysToSubtract = day === 6 ? 0 : day + 1;
+  start.setDate(start.getDate() - daysToSubtract);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function toPeriodKey(timestamp: number, granularity: ChartGranularity): string {
   const date = new Date(timestamp);
+
+  if (granularity === "week") {
+    const weekStart = getWeekStart(date);
+    return `${weekStart.getFullYear()}-${pad2(weekStart.getMonth() + 1)}-${pad2(weekStart.getDate())}`;
+  }
+
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const month = pad2(date.getMonth() + 1);
+  const day = pad2(date.getDate());
+
+  if (granularity === "hour") {
+    return `${year}-${month}-${day}T${pad2(date.getHours())}`;
+  }
+
   return `${year}-${month}-${day}`;
 }
 
-function formatDayLabel(dayKey: string): string {
-  const [year, month, day] = dayKey.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
+function parsePeriodKey(key: string, granularity: ChartGranularity): Date {
+  if (granularity === "hour") {
+    const [datePart, hourPart] = key.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    return new Date(year, month - 1, day, Number(hourPart), 0, 0, 0);
+  }
+
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatPeriodLabel(key: string, granularity: ChartGranularity): string {
+  const date = parsePeriodKey(key, granularity);
+
+  if (granularity === "hour") {
+    return date.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+    });
+  }
+
+  if (granularity === "week") {
+    const weekEnd = new Date(date);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const startLabel = date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    const endLabel = weekEnd.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    return `${startLabel}–${endLabel}`;
+  }
+
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
+}
+
+function advancePeriod(date: Date, granularity: ChartGranularity): void {
+  if (granularity === "hour") {
+    date.setHours(date.getHours() + 1);
+  } else if (granularity === "week") {
+    date.setDate(date.getDate() + 7);
+  } else {
+    date.setDate(date.getDate() + 1);
+  }
+}
+
+function fillPeriodKeys(
+  startKey: string,
+  endKey: string,
+  granularity: ChartGranularity
+): string[] {
+  const keys: string[] = [];
+  const cursor = parsePeriodKey(startKey, granularity);
+  const end = parsePeriodKey(endKey, granularity);
+
+  while (cursor <= end) {
+    keys.push(toPeriodKey(cursor.getTime(), granularity));
+    advancePeriod(cursor, granularity);
+  }
+
+  return keys;
 }
 
 export function enrichProducts(products: Product[]): EnrichedProduct[] {
@@ -86,13 +175,15 @@ export function enrichProducts(products: Product[]): EnrichedProduct[] {
       profit,
       margin,
       hasCost,
-      dayKey: toDayKey(product.orderDate),
     };
   });
 }
 
-export function buildDailyStats(products: EnrichedProduct[]): DailyStats[] {
-  const byDay = new Map<
+export function buildPeriodStats(
+  products: EnrichedProduct[],
+  granularity: ChartGranularity = "day"
+): PeriodStats[] {
+  const byPeriod = new Map<
     string,
     {
       revenue: number;
@@ -107,7 +198,8 @@ export function buildDailyStats(products: EnrichedProduct[]): DailyStats[] {
   for (const product of products) {
     if (!product.hasCost) continue;
 
-    const existing = byDay.get(product.dayKey) ?? {
+    const key = toPeriodKey(product.orderDate, granularity);
+    const existing = byPeriod.get(key) ?? {
       revenue: 0,
       cost: 0,
       fees: 0,
@@ -122,20 +214,24 @@ export function buildDailyStats(products: EnrichedProduct[]): DailyStats[] {
     existing.shipping += product.netShipping;
     existing.profit += product.profit;
     existing.orderCount += 1;
-    byDay.set(product.dayKey, existing);
+    byPeriod.set(key, existing);
   }
 
-  if (byDay.size === 0) {
+  if (byPeriod.size === 0) {
     return [];
   }
 
-  const sortedKeys = Array.from(byDay.keys()).sort((a, b) =>
+  const sortedKeys = Array.from(byPeriod.keys()).sort((a, b) =>
     a.localeCompare(b)
   );
-  const filledKeys = fillDayKeys(sortedKeys[0], sortedKeys[sortedKeys.length - 1]);
+  const filledKeys = fillPeriodKeys(
+    sortedKeys[0],
+    sortedKeys[sortedKeys.length - 1],
+    granularity
+  );
 
-  return filledKeys.map((date) => {
-    const stats = byDay.get(date) ?? {
+  return filledKeys.map((key) => {
+    const stats = byPeriod.get(key) ?? {
       revenue: 0,
       cost: 0,
       fees: 0,
@@ -145,8 +241,8 @@ export function buildDailyStats(products: EnrichedProduct[]): DailyStats[] {
     };
 
     return {
-      date,
-      label: formatDayLabel(date),
+      key,
+      label: formatPeriodLabel(key, granularity),
       revenue: roundMoney(stats.revenue),
       cost: roundMoney(stats.cost),
       fees: roundMoney(stats.fees),
@@ -161,22 +257,9 @@ export function buildDailyStats(products: EnrichedProduct[]): DailyStats[] {
   });
 }
 
-function fillDayKeys(startKey: string, endKey: string): string[] {
-  const keys: string[] = [];
-  const [startYear, startMonth, startDay] = startKey.split("-").map(Number);
-  const [endYear, endMonth, endDay] = endKey.split("-").map(Number);
-  const cursor = new Date(startYear, startMonth - 1, startDay);
-  const end = new Date(endYear, endMonth - 1, endDay);
-
-  while (cursor <= end) {
-    const year = cursor.getFullYear();
-    const month = String(cursor.getMonth() + 1).padStart(2, "0");
-    const day = String(cursor.getDate()).padStart(2, "0");
-    keys.push(`${year}-${month}-${day}`);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return keys;
+/** @deprecated Use buildPeriodStats */
+export function buildDailyStats(products: EnrichedProduct[]): PeriodStats[] {
+  return buildPeriodStats(products, "day");
 }
 
 export function buildMarketplaceStats(
@@ -312,4 +395,28 @@ export function buildTopLossItems(
 
 export function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+export function granularityLabel(granularity: ChartGranularity): string {
+  switch (granularity) {
+    case "hour":
+      return "hour";
+    case "week":
+      return "week";
+    case "day":
+    default:
+      return "day";
+  }
+}
+
+export function granularityAdjective(granularity: ChartGranularity): string {
+  switch (granularity) {
+    case "hour":
+      return "hourly";
+    case "week":
+      return "weekly";
+    case "day":
+    default:
+      return "daily";
+  }
 }

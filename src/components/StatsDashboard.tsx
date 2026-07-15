@@ -19,12 +19,21 @@ import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
 import { formatCurrency } from "../lib/productUtils";
 import { searchProduct } from "../lib/searchUtils";
 import {
-  buildDailyStats,
   buildMarketplaceStats,
+  buildPeriodStats,
   buildTopLossItems,
   buildTopSoldItems,
+  ChartGranularity,
   enrichProducts,
+  granularityAdjective,
+  granularityLabel,
 } from "../lib/statsUtils";
+
+const GRANULARITY_OPTIONS: Array<{ value: ChartGranularity; label: string }> = [
+  { value: "hour", label: "Hour" },
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+];
 
 const CHART_COLORS = {
   profit: "hsl(142 76% 36%)",
@@ -169,6 +178,8 @@ export function StatsDashboard() {
   const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(() => {
     return getDateRange("last30Days").end;
   });
+  const [chartGranularity, setChartGranularity] =
+    useState<ChartGranularity>("day");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -198,6 +209,7 @@ export function StatsDashboard() {
     setSkuFilter("");
     setMarketplaceFilters(new Set());
     setDateRange("last30Days");
+    setChartGranularity("day");
   };
 
   const filteredProducts = useMemo(() => {
@@ -226,7 +238,12 @@ export function StatsDashboard() {
     () => enrichProducts(filteredProducts),
     [filteredProducts]
   );
-  const dailyStats = useMemo(() => buildDailyStats(enriched), [enriched]);
+  const periodStats = useMemo(
+    () => buildPeriodStats(enriched, chartGranularity),
+    [enriched, chartGranularity]
+  );
+  const periodWord = granularityLabel(chartGranularity);
+  const periodAdjective = granularityAdjective(chartGranularity);
   const marketplaceStats = useMemo(
     () => buildMarketplaceStats(enriched),
     [enriched]
@@ -253,8 +270,8 @@ export function StatsDashboard() {
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Stats</h2>
         <p className="text-muted-foreground">
-          Daily profit trends, revenue vs cost, and item rankings for the
-          selected period.
+          Profit trends, revenue vs cost, and item rankings for the selected
+          period.
         </p>
       </div>
 
@@ -269,6 +286,33 @@ export function StatsDashboard() {
         clearFilters={clearFilters}
         title="Filter Stats"
       />
+
+      <div className="rounded-lg border bg-card p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-medium">Chart grouping</div>
+            <p className="text-sm text-muted-foreground">
+              Group trend charts by order hour, day, or week
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {GRANULARITY_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setChartGranularity(option.value)}
+                className={`inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  chartGranularity === option.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -325,20 +369,27 @@ export function StatsDashboard() {
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Profit per Day</CardTitle>
+                <CardTitle>Profit per {periodWord}</CardTitle>
                 <CardDescription>
-                  Daily net profit by order date (orders with cost data)
+                  Net profit by order {periodWord} (orders with cost data)
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {dailyStats.length === 0 ? (
-                  <ChartEmptyState message="No daily profit data for this range." />
+                {periodStats.length === 0 ? (
+                  <ChartEmptyState
+                    message={`No ${periodAdjective} profit data for this range.`}
+                  />
                 ) : (
                   <div className="h-[280px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={dailyStats}>
+                      <LineChart data={periodStats}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 12 }}
+                          interval="preserveStartEnd"
+                          minTickGap={24}
+                        />
                         <YAxis
                           tick={{ fontSize: 12 }}
                           tickFormatter={(v) => `$${v}`}
@@ -366,20 +417,25 @@ export function StatsDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Revenue vs Cost per Day</CardTitle>
+                <CardTitle>Revenue vs Cost per {periodWord}</CardTitle>
                 <CardDescription>
-                  Gross revenue compared to product cost by order date
+                  Gross revenue compared to product cost by order {periodWord}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {dailyStats.length === 0 ? (
+                {periodStats.length === 0 ? (
                   <ChartEmptyState message="No revenue/cost data for this range." />
                 ) : (
                   <div className="h-[280px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={dailyStats}>
+                      <LineChart data={periodStats}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 12 }}
+                          interval="preserveStartEnd"
+                          minTickGap={24}
+                        />
                         <YAxis
                           tick={{ fontSize: 12 }}
                           tickFormatter={(v) => `$${v}`}
@@ -418,18 +474,23 @@ export function StatsDashboard() {
               <CardHeader>
                 <CardTitle>Margin % Trend</CardTitle>
                 <CardDescription>
-                  Average daily margin across priced orders
+                  Average margin per {periodWord} across priced orders
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {dailyStats.length === 0 ? (
+                {periodStats.length === 0 ? (
                   <ChartEmptyState message="No margin data for this range." />
                 ) : (
                   <div className="h-[280px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={dailyStats}>
+                      <LineChart data={periodStats}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 12 }}
+                          interval="preserveStartEnd"
+                          minTickGap={24}
+                        />
                         <YAxis
                           tick={{ fontSize: 12 }}
                           tickFormatter={(v) => `${v}%`}
