@@ -19,6 +19,9 @@ type ProductTableProps = {
   onCancelEditing: () => void;
   getOrderUrl: (marketplace: string, orderId: string | undefined) => string | null;
   onResyncOrder?: (id: Id<"marketplaceProducts">) => Promise<void>;
+  onRowClick?: (product: Product) => void;
+  emptyFilteredMessage?: string;
+  emptyAllMessage?: string;
 };
 
 function SortIcon({ field, sortField, sortDirection }: { field: SortField; sortField: SortField; sortDirection: SortDirection }) {
@@ -42,6 +45,9 @@ export function ProductTable({
   onCancelEditing,
   getOrderUrl,
   onResyncOrder,
+  onRowClick,
+  emptyFilteredMessage = "No products match your filters. Try adjusting your search criteria.",
+  emptyAllMessage = "No products yet. Sync your orders to get started!",
 }: ProductTableProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
@@ -139,9 +145,9 @@ export function ProductTable({
             {products.length === 0 ? (
               <tr>
                 <td colSpan={12} className="h-20 px-3 py-3 text-center text-sm text-muted-foreground">
-                  {allProducts.length === 0 
-                    ? "No products yet. Sync your orders to get started!"
-                    : "No products match your filters. Try adjusting your search criteria."}
+                  {allProducts.length === 0
+                    ? emptyAllMessage
+                    : emptyFilteredMessage}
                 </td>
               </tr>
             ) : (
@@ -165,6 +171,7 @@ export function ProductTable({
                       onCancelEditing={onCancelEditing}
                       orderUrl={getOrderUrl(product.marketplace, product.orderId)}
                       onResyncOrder={onResyncOrder}
+                      onRowClick={onRowClick}
                     />
                   );
                 })}

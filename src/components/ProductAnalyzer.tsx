@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ProductFilters } from "./ProductFilters";
 import { ProductMetrics } from "./ProductMetrics";
 import { ProductTable } from "./ProductTable";
+import { ProductDetailModal } from "./ProductDetailModal";
 import { useCostEditing } from "../hooks/useCostEditing";
 import {
     SortField,
@@ -15,6 +16,7 @@ import {
 } from "../lib/productUtils";
 import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
 import { searchProduct, getSearchScore } from "../lib/searchUtils";
+import { Product } from "../types/product";
 
 export function ProductAnalyzer() {
     const products = useQuery(api.products.listProducts) || [];
@@ -26,6 +28,9 @@ export function ProductAnalyzer() {
 
     const [sortField, setSortField] = useState<SortField>("fulfillmentDate");
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(
+        null
+    );
 
     // Immediate input value for responsive typing
     const [skuFilterInput, setSkuFilterInput] = useState("");
@@ -211,6 +216,10 @@ export function ProductAnalyzer() {
         }
     };
 
+    const handleRowClick = (product: Product) => {
+        setSelectedProduct(product);
+    };
+
     return (
         <div className="space-y-8">
             <ProductFilters
@@ -240,6 +249,23 @@ export function ProductAnalyzer() {
                 onCancelEditing={costEditing.cancelEditing}
                 getOrderUrl={getOrderUrlForProduct}
                 onResyncOrder={handleResyncOrder}
+                onRowClick={handleRowClick}
+            />
+
+            <ProductDetailModal
+                key={
+                    selectedProduct
+                        ? (selectedProduct.productId ?? selectedProduct.sku)
+                        : "closed"
+                }
+                product={selectedProduct}
+                allProducts={products}
+                open={selectedProduct !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setSelectedProduct(null);
+                    }
+                }}
             />
         </div>
     );

@@ -24,6 +24,7 @@ type ProductTableRowProps = {
     onCancelEditing: () => void;
     orderUrl: string | null;
     onResyncOrder?: (id: Id<"marketplaceProducts">) => Promise<void>;
+    onRowClick?: (product: Product) => void;
 };
 
 export function ProductTableRow({
@@ -36,6 +37,7 @@ export function ProductTableRow({
     onCancelEditing,
     orderUrl,
     onResyncOrder,
+    onRowClick,
 }: ProductTableRowProps) {
     const [contextMenu, setContextMenu] = useState<{
         x: number;
@@ -80,10 +82,16 @@ export function ProductTableRow({
         }
     };
 
+    const handleRowClick = () => {
+        onRowClick?.(product);
+    };
+
     return (
         <>
             <tr
                 className={`border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted ${
+                    onRowClick ? "cursor-pointer" : ""
+                } ${
                     hasZeroShipping
                         ? "bg-destructive/10 border-destructive/30"
                         : !hasCost
@@ -94,6 +102,7 @@ export function ProductTableRow({
                               ? "bg-destructive/5"
                               : ""
                 }`}
+                onClick={onRowClick ? handleRowClick : undefined}
                 onContextMenu={handleContextMenu}
             >
                 <td className="px-3 py-2 align-middle text-sm font-medium">
@@ -122,6 +131,7 @@ export function ProductTableRow({
                             rel="noopener noreferrer"
                             className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors cursor-pointer"
                             title="View order"
+                            onClick={(e) => e.stopPropagation()}
                         >
                             {product.marketplace} →
                         </a>
@@ -134,7 +144,10 @@ export function ProductTableRow({
                 <td className="px-3 py-2 align-middle text-right text-sm">
                     ${product.price.toFixed(2)}
                 </td>
-                <td className="px-3 py-2 align-middle text-right text-sm">
+                <td
+                    className="px-3 py-2 align-middle text-right text-sm"
+                    onClick={(e) => e.stopPropagation()}
+                >
                     {isEditing ? (
                         <input
                             type="number"
