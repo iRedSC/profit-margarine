@@ -1,4 +1,4 @@
-import { AlertTriangle, LayoutDashboard, Settings } from "lucide-react";
+import { AlertTriangle, BarChart3, LayoutDashboard, Settings } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -24,6 +24,11 @@ export function AppSidebar({ selectedView, onViewChange }: AppSidebarProps) {
       id: "products",
       label: "Products",
       icon: LayoutDashboard,
+    },
+    {
+      id: "stats",
+      label: "Stats",
+      icon: BarChart3,
     },
     {
       id: "connections",
