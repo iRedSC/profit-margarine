@@ -204,8 +204,8 @@ export function ProductDetailModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="fixed inset-0 left-0 top-0 z-50 flex h-full w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 p-0 shadow-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
-                <div className="flex h-full flex-col overflow-hidden bg-background">
+            <DialogContent className="fixed inset-4 left-4 top-4 z-50 flex h-auto w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-lg border bg-background p-0 shadow-lg">
+                <div className="flex h-full flex-col overflow-hidden">
                     <DialogHeader className="shrink-0 border-b px-6 py-4 pr-12">
                         <DialogTitle className="text-2xl font-bold">
                             {product.sku}
