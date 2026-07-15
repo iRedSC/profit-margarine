@@ -211,11 +211,11 @@ export function StatsDashboard() {
       ) {
         return false;
       }
-      const filterDate = product.fulfillmentDate ?? product.orderDate;
-      if (dateRangeStart !== null && filterDate < dateRangeStart) {
+      // Stats day charts and rankings are keyed by order date
+      if (dateRangeStart !== null && product.orderDate < dateRangeStart) {
         return false;
       }
-      if (dateRangeEnd !== null && filterDate > dateRangeEnd) {
+      if (dateRangeEnd !== null && product.orderDate > dateRangeEnd) {
         return false;
       }
       return true;
@@ -327,7 +327,7 @@ export function StatsDashboard() {
               <CardHeader>
                 <CardTitle>Profit per Day</CardTitle>
                 <CardDescription>
-                  Daily net profit from orders with cost data
+                  Daily net profit by order date (orders with cost data)
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -368,7 +368,7 @@ export function StatsDashboard() {
               <CardHeader>
                 <CardTitle>Revenue vs Cost per Day</CardTitle>
                 <CardDescription>
-                  Gross revenue compared to product cost by day
+                  Gross revenue compared to product cost by order date
                 </CardDescription>
               </CardHeader>
               <CardContent>

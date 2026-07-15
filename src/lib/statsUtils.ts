@@ -80,15 +80,13 @@ export function enrichProducts(products: Product[]): EnrichedProduct[] {
       product.fees,
       netShipping
     );
-    const filterDate = product.fulfillmentDate ?? product.orderDate;
-
     return {
       ...product,
       netShipping,
       profit,
       margin,
       hasCost,
-      dayKey: toDayKey(filterDate),
+      dayKey: toDayKey(product.orderDate),
     };
   });
 }
