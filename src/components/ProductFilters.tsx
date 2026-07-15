@@ -10,6 +10,8 @@ type ProductFiltersProps = {
     dateRangeEnd: number | null;
     setDateRange: (rangeType: DateRangeType) => void;
     clearFilters: () => void;
+    hideSearch?: boolean;
+    title?: string;
 };
 
 const dateRangeOptions: Array<{
@@ -39,6 +41,8 @@ export function ProductFilters({
     dateRangeEnd,
     setDateRange,
     clearFilters,
+    hideSearch = false,
+    title = "Filter Products",
 }: ProductFiltersProps) {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
@@ -64,7 +68,7 @@ export function ProductFilters({
     return (
         <div className="rounded-lg border bg-card p-6">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold">Filter Products</h2>
+                <h2 className="text-2xl font-bold">{title}</h2>
                 <button
                     type="button"
                     onClick={clearFilters}
@@ -74,19 +78,23 @@ export function ProductFilters({
                 </button>
             </div>
             <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium mb-2">
-                            Search Products
-                        </label>
-                        <input
-                            type="text"
-                            value={skuFilter}
-                            onChange={(e) => setSkuFilter(e.target.value)}
-                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                            placeholder="Search by SKU or name..."
-                        />
-                    </div>
+                <div
+                    className={`grid grid-cols-1 gap-4 ${hideSearch ? "md:grid-cols-2" : "md:grid-cols-3"}`}
+                >
+                    {!hideSearch && (
+                        <div>
+                            <label className="block text-sm font-medium mb-2">
+                                Search Products
+                            </label>
+                            <input
+                                type="text"
+                                value={skuFilter}
+                                onChange={(e) => setSkuFilter(e.target.value)}
+                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                placeholder="Search by SKU or name..."
+                            />
+                        </div>
+                    )}
 
                     <div>
                         <label className="block text-sm font-medium mb-2">
