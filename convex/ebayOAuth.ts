@@ -3,6 +3,11 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import {
+  optionalTokenString,
+  parseOAuthTokenJson,
+  requireTokenString,
+} from "./lib/oauthHttp";
 
 export const exchangeCodeForToken = internalAction({
   args: {
@@ -40,15 +45,13 @@ export const exchangeCodeForToken = internalAction({
       }),
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to exchange code for token: ${error}`);
-    }
-
-    const data: any = await response.json();
-    const accessToken: string = data.access_token;
-    const refreshToken: string = data.refresh_token;
-    const expiresIn: number = data.expires_in; // seconds
+    const data = await parseOAuthTokenJson(
+      response,
+      "Failed to exchange code for token"
+    );
+    const accessToken = requireTokenString(data, "access_token");
+    const refreshToken = optionalTokenString(data, "refresh_token");
+    const expiresIn = Number(data.expires_in); // seconds
 
     // Store the connection in the database
     await ctx.runMutation(internal.marketplaceConnections.storeMarketplaceConnection, {
@@ -108,14 +111,9 @@ export const refreshAccessToken = internalAction({
       }),
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to refresh token: ${error}`);
-    }
-
-    const data: any = await response.json();
-    const accessToken: string = data.access_token;
-    const expiresIn: number = data.expires_in;
+    const data = await parseOAuthTokenJson(response, "Failed to refresh token");
+    const accessToken = requireTokenString(data, "access_token");
+    const expiresIn = Number(data.expires_in);
 
     // Update the connection in the database
     await ctx.runMutation(internal.marketplaceConnections.storeMarketplaceConnection, {

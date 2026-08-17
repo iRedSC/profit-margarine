@@ -1,5 +1,5 @@
-import { v } from "convex/values";
-import { mutation, internalMutation } from "../_generated/server";
+import { ObjectType, v } from "convex/values";
+import { mutation, internalMutation, type MutationCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { requireUserId } from "../lib/auth";
 import {
@@ -158,40 +158,41 @@ export const deleteMarketplaceProductsByOrder = internalMutation({
     },
 });
 
+const upsertPendingMarketplaceImportArgs = {
+    userId: v.id("users"),
+    marketplace: productMarketplaceValidator,
+    quantity: v.number(),
+    ...marketplaceLineItemFields,
+    reasonCode: v.string(),
+    reasonMessage: v.string(),
+    rawFinancialEventsStatus: v.optional(rawFinancialEventsStatusValidator),
+    lastAttemptAt: v.number(),
+};
+
+const resolvePendingMarketplaceImportArgs = {
+    userId: v.id("users"),
+    marketplace: productMarketplaceValidator,
+    sku: v.string(),
+    orderTimestamp: v.number(),
+    orderId: v.string(),
+    fulfillmentTimestamp: v.optional(v.number()),
+};
+
+const upsertMarketplaceProductArgs = {
+    userId: v.id("users"),
+    marketplace: productMarketplaceValidator,
+    ...marketplaceLineItemFields,
+    updateExisting: v.optional(v.boolean()),
+};
+
 async function upsertPendingMarketplaceImportHandler(
-    ctx: any,
-    args: {
-        userId: Id<"users">;
-        marketplace: "Amazon" | "Ebay" | "Shopify" | "TikTok";
-        sku: string;
-        name: string;
-        quantity: number;
-        price: number;
-        fees: number;
-        fees_breakdown?: Array<Array<string | number>>;
-        shipping: number;
-        shipping_breakdown?: Array<Array<string | number>>;
-        shippingPercentage?: number;
-        buyerPaidShipping?: number;
-        orderTimestamp: number;
-        fulfillmentTimestamp?: number;
-        orderId: string;
-        reasonCode: string;
-        reasonMessage: string;
-        rawFinancialEventsStatus?: {
-            financeStatusClassification?: string;
-            suggestFinancesV2024Fallback?: boolean;
-            pagesFetched: number;
-            usedEstimatedFees: boolean;
-            missingFulfillmentDate: boolean;
-        };
-        lastAttemptAt: number;
-    }
+    ctx: MutationCtx,
+    args: ObjectType<typeof upsertPendingMarketplaceImportArgs>
 ) {
     const existingPendingImports = await ctx.db
         .query("pendingMarketplaceImports")
-        .withIndex("by_order_id", (q: any) => q.eq("orderId", args.orderId))
-        .filter((q: any) =>
+        .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
+        .filter((q) =>
             q.and(
                 q.eq(q.field("userId"), args.userId),
                 q.eq(q.field("orderDate"), args.orderTimestamp),
@@ -250,20 +251,13 @@ async function upsertPendingMarketplaceImportHandler(
 }
 
 async function resolvePendingMarketplaceImportHandler(
-    ctx: any,
-    args: {
-        userId: Id<"users">;
-        marketplace: "Amazon" | "Ebay" | "Shopify" | "TikTok";
-        sku: string;
-        orderTimestamp: number;
-        orderId: string;
-        fulfillmentTimestamp?: number;
-    }
+    ctx: MutationCtx,
+    args: ObjectType<typeof resolvePendingMarketplaceImportArgs>
 ) {
     const existingPendingImports = await ctx.db
         .query("pendingMarketplaceImports")
-        .withIndex("by_order_id", (q: any) => q.eq("orderId", args.orderId))
-        .filter((q: any) =>
+        .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
+        .filter((q) =>
             q.and(
                 q.eq(q.field("userId"), args.userId),
                 q.eq(q.field("orderDate"), args.orderTimestamp),
@@ -286,24 +280,8 @@ async function resolvePendingMarketplaceImportHandler(
 }
 
 async function upsertMarketplaceProductHandler(
-    ctx: any,
-    args: {
-        userId: Id<"users">;
-        marketplace: "Ebay" | "Amazon" | "Shopify" | "TikTok";
-        sku: string;
-        name: string;
-        price: number;
-        fees: number;
-        fees_breakdown?: Array<Array<string | number>>;
-        shipping: number;
-        shipping_breakdown?: Array<Array<string | number>>;
-        shippingPercentage?: number;
-        buyerPaidShipping?: number;
-        orderTimestamp: number;
-        fulfillmentTimestamp?: number;
-        orderId: string;
-        updateExisting?: boolean;
-    }
+    ctx: MutationCtx,
+    args: ObjectType<typeof upsertMarketplaceProductArgs>
 ) {
     if (args.shipping === 0 && !args.fulfillmentTimestamp) {
         return;
@@ -311,7 +289,7 @@ async function upsertMarketplaceProductHandler(
 
     const existingProduct = await ctx.db
         .query("products")
-        .withIndex("by_user_and_sku", (q: any) =>
+        .withIndex("by_user_and_sku", (q) =>
             q.eq("userId", args.userId).eq("sku", args.sku)
         )
         .first();
@@ -334,8 +312,8 @@ async function upsertMarketplaceProductHandler(
     if (args.updateExisting && args.orderId && args.marketplace !== "Ebay") {
         const existingMarketplaceProducts = await ctx.db
             .query("marketplaceProducts")
-            .withIndex("by_order_id", (q: any) => q.eq("orderId", args.orderId))
-            .filter((q: any) =>
+            .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
+            .filter((q) =>
                 q.and(
                     q.eq(q.field("userId"), args.userId),
                     q.eq(q.field("orderDate"), args.orderTimestamp),
@@ -407,42 +385,21 @@ async function upsertMarketplaceProductHandler(
 }
 
 export const upsertMarketplaceProduct = internalMutation({
-    args: {
-        userId: v.id("users"),
-        marketplace: productMarketplaceValidator,
-        ...marketplaceLineItemFields,
-        updateExisting: v.optional(v.boolean()),
-    },
+    args: upsertMarketplaceProductArgs,
     handler: async (ctx, args) => {
         await upsertMarketplaceProductHandler(ctx, args);
     },
 });
 
 export const upsertPendingMarketplaceImport = internalMutation({
-    args: {
-        userId: v.id("users"),
-        marketplace: productMarketplaceValidator,
-        quantity: v.number(),
-        ...marketplaceLineItemFields,
-        reasonCode: v.string(),
-        reasonMessage: v.string(),
-        rawFinancialEventsStatus: v.optional(rawFinancialEventsStatusValidator),
-        lastAttemptAt: v.number(),
-    },
+    args: upsertPendingMarketplaceImportArgs,
     handler: async (ctx, args) => {
         await upsertPendingMarketplaceImportHandler(ctx, args);
     },
 });
 
 export const resolvePendingMarketplaceImport = internalMutation({
-    args: {
-        userId: v.id("users"),
-        marketplace: productMarketplaceValidator,
-        sku: v.string(),
-        orderTimestamp: v.number(),
-        orderId: v.string(),
-        fulfillmentTimestamp: v.optional(v.number()),
-    },
+    args: resolvePendingMarketplaceImportArgs,
     handler: async (ctx, args) => {
         await resolvePendingMarketplaceImportHandler(ctx, args);
     },

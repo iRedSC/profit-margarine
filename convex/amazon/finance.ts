@@ -1,5 +1,7 @@
 "use node";
 
+import { asSpApiRecord, type AmazonSpApi } from "./client";
+
 const AMAZON_FINANCE_V2024_REVIEW_AGE_DAYS = 7;
 const AMAZON_SHIPMENT_EVENT_LISTS = [
     "ShipmentEventList",
@@ -7,9 +9,49 @@ const AMAZON_SHIPMENT_EVENT_LISTS = [
     "TrialShipmentEventList",
 ] as const;
 
+type AmazonCurrencyAmount = {
+    CurrencyAmount?: string | number;
+};
+
+type AmazonFeeComponent = {
+    FeeType?: string;
+    FeeName?: string;
+    FeeAmount?: AmazonCurrencyAmount;
+};
+
+type AmazonShipmentItem = {
+    SellerSKU?: string;
+    ItemFeeList?: AmazonFeeComponent[];
+};
+
+type AmazonShipmentLikeEvent = {
+    AmazonOrderId?: string;
+    PostedDate?: string;
+    ShipmentDate?: string;
+    ShipmentItemList?: AmazonShipmentItem[];
+    OrderFeeList?: AmazonFeeComponent[];
+};
+
+type AmazonShipmentLikeEventMatch = {
+    listName: string;
+    event: AmazonShipmentLikeEvent;
+};
+
+export type AmazonAdjustmentEvent = {
+    AdjustmentType?: string;
+    AdjustmentAmount?: AmazonCurrencyAmount;
+    PostedDate?: string;
+};
+
+export type AmazonFinancialEvents = Record<string, unknown>;
+
+function parseApiFloat(value: string | number | undefined): number {
+    return parseFloat((value || "0") as string);
+}
+
 export function mergeFinancialEvents(
-    target: Record<string, any>,
-    source: Record<string, any> | null | undefined
+    target: Record<string, unknown>,
+    source: Record<string, unknown> | null | undefined
 ) {
     if (!source) {
         return;
@@ -17,37 +59,43 @@ export function mergeFinancialEvents(
 
     for (const [key, value] of Object.entries(source)) {
         if (Array.isArray(value)) {
-            target[key] = [...(target[key] || []), ...value];
+            target[key] = [...((target[key] as unknown[]) || []), ...value];
         } else if (target[key] === undefined) {
             target[key] = value;
         }
     }
 }
 
-export async function fetchFinancialEventsForOrder(spApi: any, orderId: string) {
-    const mergedFinancialEvents: Record<string, any> = {};
-    let nextToken: string | undefined;
+export async function fetchFinancialEventsForOrder(
+    spApi: AmazonSpApi,
+    orderId: string
+) {
+    const mergedFinancialEvents: AmazonFinancialEvents = {};
+    let nextToken: unknown;
     let pagesFetched = 0;
 
     do {
-        const financialResponse = await spApi.callAPI({
-            operation: "listFinancialEventsByOrderId",
-            endpoint: "finances",
-            path: {
-                orderId,
-            },
-            query: {
-                MaxResultsPerPage: 100,
-                ...(nextToken ? { NextToken: nextToken } : {}),
-            },
-        });
+        const financialResponse = asSpApiRecord(
+            await spApi.callAPI({
+                operation: "listFinancialEventsByOrderId",
+                endpoint: "finances",
+                path: {
+                    orderId,
+                },
+                query: {
+                    MaxResultsPerPage: 100,
+                    ...(nextToken ? { NextToken: nextToken } : {}),
+                },
+            })
+        );
 
         pagesFetched++;
         mergeFinancialEvents(
             mergedFinancialEvents,
-            financialResponse.FinancialEvents
+            asSpApiRecord(financialResponse?.FinancialEvents)
         );
-        nextToken = financialResponse.NextToken || financialResponse.nextToken;
+        nextToken =
+            financialResponse?.NextToken || financialResponse?.nextToken;
     } while (nextToken);
 
     return {
@@ -60,7 +108,7 @@ export async function fetchFinancialEventsForOrder(spApi: any, orderId: string) 
 }
 
 export function getEventListCounts(
-    financialEvents: any
+    financialEvents: AmazonFinancialEvents | null | undefined
 ): Array<{ listName: string; count: number }> {
     if (!financialEvents) {
         return [];
@@ -73,12 +121,15 @@ export function getEventListCounts(
         )
         .map(([listName, value]) => ({
             listName,
-            count: (value as any[]).length,
+            count: (value as unknown[]).length,
         }));
 }
 
-export function getShipmentLikeEvents(financialEvents: any, orderId: string) {
-    const matchedEvents: Array<{ listName: string; event: any }> = [];
+export function getShipmentLikeEvents(
+    financialEvents: AmazonFinancialEvents | null | undefined,
+    orderId: string
+) {
+    const matchedEvents: AmazonShipmentLikeEventMatch[] = [];
 
     for (const listName of AMAZON_SHIPMENT_EVENT_LISTS) {
         const eventList = financialEvents?.[listName];
@@ -87,10 +138,14 @@ export function getShipmentLikeEvents(financialEvents: any, orderId: string) {
         }
 
         for (const event of eventList) {
-            if (!event?.AmazonOrderId || event.AmazonOrderId === orderId) {
+            const shipmentEvent = event as AmazonShipmentLikeEvent;
+            if (
+                !shipmentEvent?.AmazonOrderId ||
+                shipmentEvent.AmazonOrderId === orderId
+            ) {
                 matchedEvents.push({
                     listName,
-                    event,
+                    event: shipmentEvent,
                 });
             }
         }
@@ -99,12 +154,15 @@ export function getShipmentLikeEvents(financialEvents: any, orderId: string) {
     return matchedEvents;
 }
 
-export function hasShipmentFinancialEvents(financialEvents: any, orderId: string) {
+export function hasShipmentFinancialEvents(
+    financialEvents: AmazonFinancialEvents | null | undefined,
+    orderId: string
+) {
     return getShipmentLikeEvents(financialEvents, orderId).length > 0;
 }
 
 export function classifyFinancialEvents(args: {
-    financialEvents: any;
+    financialEvents: AmazonFinancialEvents | null | undefined;
     orderTimestamp: number;
     shipmentLikeEventCount: number;
 }) {
@@ -113,9 +171,9 @@ export function classifyFinancialEvents(args: {
         (eventList) => eventList.count > 0
     );
     const hasAnyFinancialEvents = nonEmptyEventLists.length > 0;
-    const shipmentLikeListNames = new Set(AMAZON_SHIPMENT_EVENT_LISTS);
+    const shipmentLikeListNames = new Set<string>(AMAZON_SHIPMENT_EVENT_LISTS);
     const hasNonShipmentFinancialEvents = nonEmptyEventLists.some(
-        (eventList) => !shipmentLikeListNames.has(eventList.listName as any)
+        (eventList) => !shipmentLikeListNames.has(eventList.listName)
     );
     const orderAgeDays =
         (Date.now() - args.orderTimestamp) / (24 * 60 * 60 * 1000);
@@ -137,15 +195,14 @@ export function classifyFinancialEvents(args: {
         hasNonShipmentFinancialEvents,
         financeStatusClassification,
         suggestFinancesV2024Fallback,
-        nonEmptyEventLists: nonEmptyEventLists.map(({ listName, count }) => [
-            listName,
-            count,
-        ]) as Array<[string, number]>,
+        nonEmptyEventLists: nonEmptyEventLists.map(
+            ({ listName, count }): [string, number] => [listName, count]
+        ),
     };
 }
 
 export function extractFulfillmentFromShipmentLikeEvents(
-    shipmentLikeEvents: Array<{ listName: string; event: any }>
+    shipmentLikeEvents: AmazonShipmentLikeEventMatch[]
 ) {
     let fulfillmentTimestamp: number | undefined;
     let fulfillmentDate: string | undefined;
@@ -176,7 +233,7 @@ export function extractFulfillmentFromShipmentLikeEvents(
 }
 
 export function extractFulfillmentFromAdjustmentEvents(args: {
-    adjustmentEvents: any[] | undefined;
+    adjustmentEvents: AmazonAdjustmentEvent[] | undefined;
     orderTimestamp: number;
 }) {
     let fulfillmentTimestamp: number | undefined;
@@ -190,8 +247,8 @@ export function extractFulfillmentFromAdjustmentEvents(args: {
             continue;
         }
 
-        const adjustmentAmount = parseFloat(
-            adjustment.AdjustmentAmount?.CurrencyAmount || "0"
+        const adjustmentAmount = parseApiFloat(
+            adjustment.AdjustmentAmount?.CurrencyAmount
         );
         if (!Number.isFinite(adjustmentAmount) || adjustmentAmount >= 0) {
             continue;
@@ -226,7 +283,7 @@ export function extractFulfillmentFromAdjustmentEvents(args: {
 }
 
 export async function fetchFulfillmentFromOrderPackages(args: {
-    spApi: any;
+    spApi: AmazonSpApi;
     orderId: string;
     orderTimestamp: number;
 }) {
@@ -237,40 +294,44 @@ export async function fetchFulfillmentFromOrderPackages(args: {
         Math.max(args.orderTimestamp + 30 * 24 * 60 * 60 * 1000, Date.now())
     ).toISOString();
 
-    const ordersResponse = await args.spApi.callAPI({
-        operation: "getOrders",
-        endpoint: "orders",
-        query: {
-            MarketplaceIds: ["ATVPDKIKX0DER"],
-            CreatedAfter: createdAfter,
-            CreatedBefore: createdBefore,
-            OrderStatuses: ["Shipped", "PartiallyShipped"],
-            AmazonOrderIds: [args.orderId],
-            includedData: ["PACKAGES"],
-        },
-    });
-
-    const matchingOrder = (ordersResponse.Orders || []).find(
-        (order: any) => order?.AmazonOrderId === args.orderId
+    const ordersResponse = asSpApiRecord(
+        await args.spApi.callAPI({
+            operation: "getOrders",
+            endpoint: "orders",
+            query: {
+                MarketplaceIds: ["ATVPDKIKX0DER"],
+                CreatedAfter: createdAfter,
+                CreatedBefore: createdBefore,
+                OrderStatuses: ["Shipped", "PartiallyShipped"],
+                AmazonOrderIds: [args.orderId],
+                includedData: ["PACKAGES"],
+            },
+        })
     );
-    const packages = matchingOrder?.packages || matchingOrder?.Packages || [];
+
+    const matchingOrder = (
+        (ordersResponse?.Orders || []) as Array<Record<string, unknown>>
+    ).find((order) => order?.AmazonOrderId === args.orderId);
+    const packages =
+        matchingOrder?.packages || matchingOrder?.Packages || [];
     let fulfillmentTimestamp: number | undefined;
     let fulfillmentDate: string | undefined;
 
-    for (const orderPackage of packages) {
-        const shipTime = orderPackage?.shipTime || orderPackage?.ShipTime;
+    for (const orderPackage of packages as unknown[]) {
+        const pkg = asSpApiRecord(orderPackage);
+        const shipTime = pkg?.shipTime || pkg?.ShipTime;
         if (!shipTime) {
             continue;
         }
 
-        const parsedShipTime = new Date(shipTime).getTime();
+        const parsedShipTime = new Date(shipTime as string).getTime();
         if (!Number.isFinite(parsedShipTime)) {
             continue;
         }
 
         if (!fulfillmentTimestamp || parsedShipTime < fulfillmentTimestamp) {
             fulfillmentTimestamp = parsedShipTime;
-            fulfillmentDate = shipTime;
+            fulfillmentDate = shipTime as string;
         }
     }
 
@@ -284,7 +345,7 @@ export async function fetchFulfillmentFromOrderPackages(args: {
 }
 
 export function extractFBAFeesFromShipmentLikeEvents(
-    shipmentLikeEvents: Array<{ listName: string; event: any }>
+    shipmentLikeEvents: AmazonShipmentLikeEventMatch[]
 ) {
     let totalFBAFees = 0;
     const fbaFeesBySKU: Record<string, number> = {};
@@ -311,9 +372,7 @@ export function extractFBAFeesFromShipmentLikeEvents(
                             feeType.includes("PACK")
                         ) {
                             const feeAmount = Math.abs(
-                                parseFloat(
-                                    fee.FeeAmount?.CurrencyAmount || "0"
-                                )
+                                parseApiFloat(fee.FeeAmount?.CurrencyAmount)
                             );
                             itemFBAFees += feeAmount;
                         }
@@ -335,7 +394,7 @@ export function extractFBAFeesFromShipmentLikeEvents(
                     feeType.includes("FULFILLMENT")
                 ) {
                     const feeAmount = Math.abs(
-                        parseFloat(fee.FeeAmount?.CurrencyAmount || "0")
+                        parseApiFloat(fee.FeeAmount?.CurrencyAmount)
                     );
                     totalFBAFees += feeAmount;
                 }
@@ -350,7 +409,7 @@ export function extractFBAFeesFromShipmentLikeEvents(
 }
 
 export function extractItemFeesFromShipmentLikeEvents(args: {
-    shipmentLikeEvents: Array<{ listName: string; event: any }>;
+    shipmentLikeEvents: AmazonShipmentLikeEventMatch[];
     sellerSKU: string;
     isFBA: boolean;
 }) {
@@ -385,9 +444,7 @@ export function extractItemFeesFromShipmentLikeEvents(args: {
                         }
 
                         const feeAmount = Math.abs(
-                            parseFloat(
-                                fee.FeeAmount?.CurrencyAmount || "0"
-                            )
+                            parseApiFloat(fee.FeeAmount?.CurrencyAmount)
                         );
                         actualFees += feeAmount;
                         feesBreakdown.push([feeType, feeAmount]);
@@ -411,7 +468,7 @@ export function extractItemFeesFromShipmentLikeEvents(args: {
                 }
 
                 const feeAmount = Math.abs(
-                    parseFloat(fee.FeeAmount?.CurrencyAmount || "0")
+                    parseApiFloat(fee.FeeAmount?.CurrencyAmount)
                 );
                 actualFees += feeAmount;
                 feesBreakdown.push([feeType, feeAmount]);
@@ -428,7 +485,7 @@ export function extractItemFeesFromShipmentLikeEvents(args: {
 }
 
 export function summarizeRawFinancialEvents(
-    financialEvents: any,
+    financialEvents: AmazonFinancialEvents | null | undefined,
     pagesFetched: number,
     orderTimestamp: number,
     orderId: string
@@ -456,6 +513,18 @@ export function summarizeRawFinancialEvents(
         orderTimestamp,
         shipmentLikeEventCount: shipmentLikeEvents.length,
     });
+    const adjustmentEventList = financialEvents?.AdjustmentEventList as
+        | { length?: number }
+        | undefined;
+    const shipmentEventList = financialEvents?.ShipmentEventList as
+        | { length?: number }
+        | undefined;
+    const shipmentSettleEventList = financialEvents?.ShipmentSettleEventList as
+        | { length?: number }
+        | undefined;
+    const trialShipmentEventList = financialEvents?.TrialShipmentEventList as
+        | { length?: number }
+        | undefined;
 
     return {
         hasAnyFinancialEvents: classification.hasAnyFinancialEvents,
@@ -467,17 +536,13 @@ export function summarizeRawFinancialEvents(
         hasShipmentFinancialEvents: shipmentLikeEvents.length > 0,
         shipmentLikeEventCount: shipmentLikeEvents.length,
         hasAdjustmentEventList: !!financialEvents?.AdjustmentEventList,
-        adjustmentEventListLength:
-            financialEvents?.AdjustmentEventList?.length || 0,
+        adjustmentEventListLength: adjustmentEventList?.length || 0,
         hasShipmentEventList: !!financialEvents?.ShipmentEventList,
-        shipmentEventListLength:
-            financialEvents?.ShipmentEventList?.length || 0,
+        shipmentEventListLength: shipmentEventList?.length || 0,
         hasShipmentSettleEventList: !!financialEvents?.ShipmentSettleEventList,
-        shipmentSettleEventListLength:
-            financialEvents?.ShipmentSettleEventList?.length || 0,
+        shipmentSettleEventListLength: shipmentSettleEventList?.length || 0,
         hasTrialShipmentEventList: !!financialEvents?.TrialShipmentEventList,
-        trialShipmentEventListLength:
-            financialEvents?.TrialShipmentEventList?.length || 0,
+        trialShipmentEventListLength: trialShipmentEventList?.length || 0,
         pagesFetched,
     };
 }

@@ -9,7 +9,7 @@ import {
     splitOrderCosts,
     toPerUnitBreakdown,
 } from "../lib/orderCosts";
-import { getSellingPartnerAPI } from "./client";
+import { asSpApiRecord, getSellingPartnerAPI } from "./client";
 import {
     extractFBAFeesFromShipmentLikeEvents,
     extractFulfillmentFromAdjustmentEvents,
@@ -21,7 +21,34 @@ import {
     getShipmentLikeEvents,
     hasShipmentFinancialEvents,
     summarizeRawFinancialEvents,
+    type AmazonAdjustmentEvent,
+    type AmazonFinancialEvents,
 } from "./finance";
+
+type AmazonOrderItem = {
+    SellerSKU: string;
+    Title: string;
+    QuantityOrdered?: string | number;
+    ItemPrice?: { Amount?: string | number };
+    ShippingPrice?: { Amount?: string | number };
+};
+
+function caughtErrorMessage(error: unknown): string {
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const { message } = error;
+        if (message) {
+            return message as string;
+        }
+    }
+    if (typeof error === "object" && error !== null) {
+        const toString = (error as { toString?: () => string }).toString;
+        if (typeof toString === "function") {
+            return toString.call(error);
+        }
+        return Object.prototype.toString.call(error);
+    }
+    return String(error);
+}
 
 export const processAmazonOrder = internalAction({
     args: {
@@ -127,28 +154,32 @@ export const processAmazonOrder = internalAction({
             const spApi = getSellingPartnerAPI();
 
             // First, get the order details to get the timestamp
-            const orderResponse = await spApi.callAPI({
-                operation: "getOrder",
-                endpoint: "orders",
-                path: {
-                    orderId: args.orderId,
-                },
-            });
+            const orderResponse =
+                asSpApiRecord(
+                    await spApi.callAPI({
+                        operation: "getOrder",
+                        endpoint: "orders",
+                        path: {
+                            orderId: args.orderId,
+                        },
+                    })
+                ) ?? {};
 
             const orderTimestamp = new Date(
-                orderResponse.PurchaseDate
+                orderResponse.PurchaseDate as string
             ).getTime();
 
             // Check if order is cancelled
-            const orderStatus = orderResponse.OrderStatus;
+            const orderStatus = orderResponse.OrderStatus as string | undefined;
             
             // Check if this is an FBA order (AFN = Amazon Fulfillment Network)
-            const fulfillmentChannel = orderResponse.FulfillmentChannel || "";
+            const fulfillmentChannel = (orderResponse.FulfillmentChannel ||
+                "") as string;
             const isFBA = fulfillmentChannel === "AFN";
             
             log.orderData = {
                 orderStatus: orderStatus,
-                purchaseDate: orderResponse.PurchaseDate,
+                purchaseDate: orderResponse.PurchaseDate as string | undefined,
                 orderTimestamp: orderTimestamp,
             };
 
@@ -199,15 +230,19 @@ export const processAmazonOrder = internalAction({
                 };
             }
 
-            const orderItemsResponse = await spApi.callAPI({
-                operation: "getOrderItems",
-                endpoint: "orders",
-                path: {
-                    orderId: args.orderId,
-                },
-            });
+            const orderItemsResponse =
+                asSpApiRecord(
+                    await spApi.callAPI({
+                        operation: "getOrderItems",
+                        endpoint: "orders",
+                        path: {
+                            orderId: args.orderId,
+                        },
+                    })
+                ) ?? {};
 
-            const orderItems = orderItemsResponse.OrderItems || [];
+            const orderItems = (orderItemsResponse.OrderItems ||
+                []) as AmazonOrderItem[];
             log.summary.totalItems = orderItems.length;
 
             // Calculate total shipping cost for the order to split across items
@@ -217,13 +252,13 @@ export const processAmazonOrder = internalAction({
             let totalBuyerPaidShipping = 0;
             for (const item of orderItems) {
                 const shippingPrice = parseFloat(
-                    item.ShippingPrice?.Amount || "0"
+                    (item.ShippingPrice?.Amount || "0") as string
                 );
                 totalBuyerPaidShipping += shippingPrice;
             }
 
             // Get financial events for this order to get actual fees and shipping costs
-            let financialEvents = null;
+            let financialEvents: AmazonFinancialEvents | null = null;
             let financialEventPagesFetched = 0;
             const shippingAdjustments: Array<{ type: string; amount: number }> = [];
             try {
@@ -233,10 +268,10 @@ export const processAmazonOrder = internalAction({
                 );
                 financialEvents = financialResult.financialEvents;
                 financialEventPagesFetched = financialResult.pagesFetched;
-            } catch (error: any) {
+            } catch (error: unknown) {
                 log.errors.push({
                     step: "fetch_financial_events",
-                    error: error.message || String(error),
+                    error: caughtErrorMessage(error),
                     timestamp: new Date().toISOString(),
                 });
             }
@@ -294,10 +329,11 @@ export const processAmazonOrder = internalAction({
             } else {
                 // For FBM orders, extract shipping from AdjustmentEventList
                 if (financialEvents?.AdjustmentEventList) {
-                    for (const adjustment of financialEvents.AdjustmentEventList) {
+                    for (const adjustment of financialEvents.AdjustmentEventList as AmazonAdjustmentEvent[]) {
                         const adjustmentType = adjustment.AdjustmentType || "";
                         const adjustmentAmount = parseFloat(
-                            adjustment.AdjustmentAmount?.CurrencyAmount || "0"
+                            (adjustment.AdjustmentAmount?.CurrencyAmount ||
+                                "0") as string
                         );
                         
                         // Capture postage (base shipping cost)
@@ -361,7 +397,10 @@ export const processAmazonOrder = internalAction({
             if (!fulfillmentTimestamp && !isFBA) {
                 const adjustmentFulfillment =
                     extractFulfillmentFromAdjustmentEvents({
-                        adjustmentEvents: financialEvents?.AdjustmentEventList,
+                        adjustmentEvents:
+                            financialEvents?.AdjustmentEventList as
+                                | AmazonAdjustmentEvent[]
+                                | undefined,
                         orderTimestamp,
                     });
                 if (adjustmentFulfillment.fulfillmentTimestamp) {
@@ -388,10 +427,10 @@ export const processAmazonOrder = internalAction({
                         fulfillmentSourceList =
                             packageFulfillment.fulfillmentSourceList;
                     }
-                } catch (error: any) {
+                } catch (error: unknown) {
                     log.errors.push({
                         step: "fetch_order_package_ship_time",
-                        error: error.message || String(error),
+                        error: caughtErrorMessage(error),
                         timestamp: new Date().toISOString(),
                     });
                 }
@@ -407,8 +446,8 @@ export const processAmazonOrder = internalAction({
 
             // Calculate total quantity across all items
             const totalQuantity = orderItems.reduce(
-                (sum: number, item: any) => {
-                    return sum + parseInt(item.QuantityOrdered || "1");
+                (sum: number, item: AmazonOrderItem) => {
+                    return sum + parseInt((item.QuantityOrdered || "1") as string);
                 },
                 0
             );
@@ -448,11 +487,15 @@ export const processAmazonOrder = internalAction({
             
             const attemptTimestamp = Date.now();
             for (const item of orderItems) {
-                const price = parseFloat(item.ItemPrice?.Amount || "0");
+                const price = parseFloat(
+                    (item.ItemPrice?.Amount || "0") as string
+                );
                 if (price === 0) {
                     continue;
                 }
-                const quantity = parseInt(item.QuantityOrdered || "1");
+                const quantity = parseInt(
+                    (item.QuantityOrdered || "1") as string
+                );
 
                 // Get actual fees from financial events
                 const {
@@ -654,10 +697,10 @@ export const processAmazonOrder = internalAction({
                 skippedReason: undefined,
                 rawFinancialEvents: log.rawFinancialEvents,
             };
-        } catch (error: any) {
+        } catch (error: unknown) {
             log.errors.push({
                 step: "process_order",
-                error: error.message || String(error),
+                error: caughtErrorMessage(error),
                 timestamp: new Date().toISOString(),
             });
             console.error(JSON.stringify(log));

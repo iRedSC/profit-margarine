@@ -13,14 +13,17 @@ import { ProductFilters } from "./ProductFilters";
 import { ProductMetrics } from "./ProductMetrics";
 import { ProductTable } from "./ProductTable";
 import { useCostEditing } from "../hooks/useCostEditing";
+import { useProductFilters } from "../hooks/useProductFilters";
 import {
     SortField,
     SortDirection,
-    calculateProfit,
-    calculateMargin,
     getOrderUrl,
 } from "../lib/productUtils";
-import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
+import {
+    filterProducts,
+    isSameProduct,
+    sortProducts,
+} from "../lib/productListUtils";
 import { Product } from "../types/product";
 
 type ProductDetailModalProps = {
@@ -29,13 +32,6 @@ type ProductDetailModalProps = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
 };
-
-function isSameItem(a: Product, b: Product): boolean {
-    if (a.productId && b.productId) {
-        return a.productId === b.productId;
-    }
-    return a.sku === b.sku;
-}
 
 export function ProductDetailModal({
     product,
@@ -51,121 +47,42 @@ export function ProductDetailModal({
 
     const [sortField, setSortField] = useState<SortField>("fulfillmentDate");
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-    const [marketplaceFilters, setMarketplaceFilters] = useState<Set<string>>(
-        new Set()
-    );
-    const [dateRangeStart, setDateRangeStart] = useState<number | null>(() => {
-        const range = getDateRange("allTime");
-        return range.start;
-    });
-    const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(() => {
-        const range = getDateRange("allTime");
-        return range.end;
-    });
+    const {
+        searchInput,
+        setSearchInput,
+        marketplaceFilters,
+        toggleMarketplaceFilter,
+        dateRangeType,
+        setDateRange,
+        dateRangeStart,
+        dateRangeEnd,
+        clearFilters,
+    } = useProductFilters("allTime");
 
     const itemInstances = useMemo(() => {
         if (!product) {
             return [];
         }
-        return allProducts.filter((p) => isSameItem(p, product));
+        return allProducts.filter((p) => isSameProduct(p, product));
     }, [allProducts, product]);
 
-    const filteredProducts = useMemo(() => {
-        return itemInstances.filter((item) => {
-            if (
-                marketplaceFilters.size > 0 &&
-                !marketplaceFilters.has(item.marketplace)
-            ) {
-                return false;
-            }
+    const filteredProducts = useMemo(
+        () =>
+            filterProducts(itemInstances, {
+                marketplaces: marketplaceFilters,
+                start: dateRangeStart,
+                end: dateRangeEnd,
+                dateField: "fulfillmentDate",
+            }),
+        [itemInstances, marketplaceFilters, dateRangeStart, dateRangeEnd]
+    );
 
-            const filterDate = item.fulfillmentDate ?? item.orderDate;
-            if (dateRangeStart !== null && filterDate < dateRangeStart) {
-                return false;
-            }
-            if (dateRangeEnd !== null && filterDate > dateRangeEnd) {
-                return false;
-            }
+    const sortedProducts = useMemo(
+        () => sortProducts(filteredProducts, sortField, sortDirection),
+        [filteredProducts, sortField, sortDirection]
+    );
 
-            return true;
-        });
-    }, [itemInstances, marketplaceFilters, dateRangeStart, dateRangeEnd]);
-
-    const productsToSort = useMemo(() => {
-        return sortField === "profit" || sortField === "margin"
-            ? filteredProducts.filter((p) => p.cost !== undefined)
-            : filteredProducts;
-    }, [filteredProducts, sortField]);
-
-    const sortedProducts = useMemo(() => {
-        return [...productsToSort].sort((a, b) => {
-            let aValue: any;
-            let bValue: any;
-
-            const aNetShipping =
-                a.buyerPaidShipping !== undefined
-                    ? a.shipping - a.buyerPaidShipping
-                    : a.shipping;
-            const bNetShipping =
-                b.buyerPaidShipping !== undefined
-                    ? b.shipping - b.buyerPaidShipping
-                    : b.shipping;
-
-            if (sortField === "profit") {
-                aValue = calculateProfit(a.price, a.cost, a.fees, aNetShipping);
-                bValue = calculateProfit(b.price, b.cost, b.fees, bNetShipping);
-            } else if (sortField === "margin") {
-                aValue = calculateMargin(a.price, a.cost, a.fees, aNetShipping);
-                bValue = calculateMargin(b.price, b.cost, b.fees, bNetShipping);
-            } else if (sortField === "cost") {
-                aValue = a.cost !== undefined ? a.cost : -Infinity;
-                bValue = b.cost !== undefined ? b.cost : -Infinity;
-            } else if (sortField === "shipping") {
-                aValue = aNetShipping;
-                bValue = bNetShipping;
-            } else if (sortField === "fulfillmentDate") {
-                aValue = a.fulfillmentDate ?? a.orderDate;
-                bValue = b.fulfillmentDate ?? b.orderDate;
-            } else {
-                aValue = a[sortField];
-                bValue = b[sortField];
-            }
-
-            if (typeof aValue === "string" && typeof bValue === "string") {
-                return sortDirection === "asc"
-                    ? aValue.localeCompare(bValue)
-                    : bValue.localeCompare(aValue);
-            }
-
-            if (sortDirection === "asc") {
-                return aValue > bValue ? 1 : -1;
-            }
-            return aValue < bValue ? 1 : -1;
-        });
-    }, [productsToSort, sortField, sortDirection]);
-
-    const costEditing = useCostEditing(updateMarketplaceCost, sortedProducts);
-
-    const toggleMarketplaceFilter = (marketplace: string) => {
-        const newFilters = new Set(marketplaceFilters);
-        if (newFilters.has(marketplace)) {
-            newFilters.delete(marketplace);
-        } else {
-            newFilters.add(marketplace);
-        }
-        setMarketplaceFilters(newFilters);
-    };
-
-    const setDateRange = (rangeType: DateRangeType) => {
-        const range = getDateRange(rangeType);
-        setDateRangeStart(range.start);
-        setDateRangeEnd(range.end);
-    };
-
-    const clearFilters = () => {
-        setMarketplaceFilters(new Set());
-        setDateRange("allTime");
-    };
+    const costEditing = useCostEditing(updateMarketplaceCost);
 
     const handleSort = (field: SortField) => {
         if (sortField === field) {
@@ -174,13 +91,6 @@ export function ProductDetailModal({
             setSortField(field);
             setSortDirection("asc");
         }
-    };
-
-    const handleSaveCost = async (
-        id: Id<"marketplaceProducts">,
-        moveToNext: boolean
-    ) => {
-        await costEditing.saveCost(id, moveToNext);
     };
 
     const getOrderUrlForProduct = (
@@ -225,12 +135,11 @@ export function ProductDetailModal({
                     <div className="flex-1 overflow-y-auto px-6 py-6">
                         <div className="mx-auto max-w-[1600px] space-y-8">
                             <ProductFilters
-                                skuFilter=""
-                                setSkuFilter={() => {}}
+                                skuFilter={searchInput}
+                                setSkuFilter={setSearchInput}
                                 marketplaceFilters={marketplaceFilters}
                                 toggleMarketplaceFilter={toggleMarketplaceFilter}
-                                dateRangeStart={dateRangeStart}
-                                dateRangeEnd={dateRangeEnd}
+                                dateRangeType={dateRangeType}
                                 setDateRange={setDateRange}
                                 clearFilters={clearFilters}
                                 hideSearch
@@ -249,7 +158,7 @@ export function ProductDetailModal({
                                 editingCostValue={costEditing.editingCostValue}
                                 setEditingCostValue={costEditing.setEditingCostValue}
                                 onStartEditing={costEditing.startEditing}
-                                onSaveCost={handleSaveCost}
+                                onSaveCost={costEditing.saveCost}
                                 onCancelEditing={costEditing.cancelEditing}
                                 getOrderUrl={getOrderUrlForProduct}
                                 onResyncOrder={handleResyncOrder}

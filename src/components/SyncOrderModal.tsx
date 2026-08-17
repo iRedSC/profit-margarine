@@ -12,6 +12,7 @@ import {
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Loader2 } from "lucide-react";
+import { getErrorMessage } from "../lib/errors";
 
 type Marketplace = "Amazon" | "Ebay" | "Shopify" | "TikTok";
 
@@ -48,8 +49,8 @@ export function SyncOrderModal({ open, onOpenChange }: SyncOrderModalProps) {
             toast.success(`Successfully started syncing ${marketplace} order: ${orderId.trim()}`);
             setOrderId("");
             onOpenChange(false);
-        } catch (error: any) {
-            toast.error(`Failed to sync order: ${error.message || "Unknown error"}`);
+        } catch (error: unknown) {
+            toast.error(`Failed to sync order: ${getErrorMessage(error)}`);
         } finally {
             setIsSyncing(false);
         }
@@ -119,7 +120,7 @@ export function SyncOrderModal({ open, onOpenChange }: SyncOrderModalProps) {
                             Cancel
                         </Button>
                         <Button
-                            onClick={handleSync}
+                            onClick={() => void handleSync()}
                             disabled={isSyncing || !orderId.trim()}
                         >
                             {isSyncing ? (

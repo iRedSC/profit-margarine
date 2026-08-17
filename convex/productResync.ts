@@ -1,18 +1,16 @@
 "use node";
 
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { validateSyncActive, handleSyncError } from "./marketplaceUtils";
-import { finishSync } from "./marketplaceUtils";
+import {
+    validateSyncActive,
+    handleSyncError,
+    finishSync,
+    getErrorMessage,
+} from "./marketplaceUtils";
 import { Id } from "./_generated/dataModel";
 import { productMarketplaceValidator } from "./lib/validators";
-
-type ActionCtx = {
-    runAction: (...args: any[]) => Promise<any>;
-    runQuery: (...args: any[]) => Promise<any>;
-    runMutation: (...args: any[]) => Promise<any>;
-};
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -52,15 +50,10 @@ async function processOrderByMarketplace(
             }),
         ]);
 
-        const shippingCost =
-            typeof shippingData === "object"
-                ? shippingData.shipping
-                : shippingData;
-
         return await ctx.runAction(internal.ebay.processEbayOrder, {
             userId: args.userId,
             orderId: args.orderId,
-            shippingCost,
+            shippingCost: shippingData.shipping,
             accessToken,
             allTransactions: transactions,
             updateExisting: true,
@@ -132,13 +125,13 @@ export const resyncOrderAction = internalAction({
             });
 
             return { success: true };
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(
                 JSON.stringify({
                     operation: "resync_order",
                     orderId: args.orderId,
                     marketplace: args.marketplace,
-                    error: error.message || String(error),
+                    error: getErrorMessage(error),
                     timestamp: new Date().toISOString(),
                 })
             );
@@ -203,13 +196,13 @@ export const syncOrderByIdAction = internalAction({
             }
 
             return { success: true };
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(
                 JSON.stringify({
                     operation: "sync_order_by_id",
                     orderId: args.orderId,
                     marketplace: args.marketplace,
-                    error: error.message || String(error),
+                    error: getErrorMessage(error),
                     timestamp: new Date().toISOString(),
                 })
             );
@@ -284,13 +277,13 @@ export const resyncAllOrdersAction = internalAction({
                             orderId: order.orderId,
                         }
                     );
-                } catch (error: any) {
+                } catch (error: unknown) {
                     console.error(
                         JSON.stringify({
                             operation: "resync_all_orders",
                             orderId: order.orderId,
                             marketplace: order.marketplace,
-                            error: error.message || String(error),
+                            error: getErrorMessage(error),
                             timestamp: new Date().toISOString(),
                         })
                     );
@@ -317,7 +310,7 @@ export const resyncAllOrdersAction = internalAction({
                 totalProcessed,
                 totalOrders,
             };
-        } catch (error: any) {
+        } catch (error: unknown) {
             await handleSyncError(ctx, args.syncId, error, "amazon");
             throw error;
         }

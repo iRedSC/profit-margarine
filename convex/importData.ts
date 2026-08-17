@@ -1,5 +1,5 @@
-import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { Infer, v } from "convex/values";
+import { mutation, type MutationCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { requireUserId } from "./lib/auth";
 import {
@@ -27,8 +27,10 @@ const dataRowValidator = v.object({
   shipping_breakdown: v.optional(breakdownValidator),
 });
 
+type DataRow = Infer<typeof dataRowValidator>;
+
 async function ensureProduct(
-  ctx: any,
+  ctx: MutationCtx,
   userId: Id<"users">,
   sku: string,
   name: string | undefined,
@@ -36,7 +38,7 @@ async function ensureProduct(
 ): Promise<Id<"products">> {
   const existingProduct = await ctx.db
     .query("products")
-    .withIndex("by_user_and_sku", (q: any) =>
+    .withIndex("by_user_and_sku", (q) =>
       q.eq("userId", userId).eq("sku", sku)
     )
     .first();
@@ -64,15 +66,9 @@ async function ensureProduct(
 }
 
 async function findExistingMarketplaceProduct(
-  ctx: any,
+  ctx: MutationCtx,
   userId: Id<"users">,
-  row: {
-    id?: string;
-    marketplace: "Ebay" | "Amazon" | "Shopify" | "TikTok";
-    sku: string;
-    orderDate: number;
-    orderId?: string;
-  }
+  row: Pick<DataRow, "id" | "marketplace" | "sku" | "orderDate" | "orderId">
 ) {
   if (row.id) {
     try {
@@ -91,8 +87,8 @@ async function findExistingMarketplaceProduct(
 
   const matches = await ctx.db
     .query("marketplaceProducts")
-    .withIndex("by_order_id", (q: any) => q.eq("orderId", row.orderId))
-    .filter((q: any) =>
+    .withIndex("by_order_id", (q) => q.eq("orderId", row.orderId))
+    .filter((q) =>
       q.and(
         q.eq(q.field("userId"), userId),
         q.eq(q.field("orderDate"), row.orderDate),

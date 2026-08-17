@@ -1,18 +1,17 @@
 import { v } from "convex/values";
-import { mutation, internalMutation } from "../_generated/server";
+import { mutation, internalMutation, type MutationCtx } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import { SyncMessages } from "../syncMessages";
-import type { MarketplaceType } from "../marketplaceConnections";
-import { Id } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 
 /**
  * Helper function to initialize sync status for a marketplace
  * Cancels any existing active syncs for the same marketplace, then creates a new sync record
  */
 export async function initializeSyncStatus(
-    ctx: any,
-    marketplace: MarketplaceType
+    ctx: MutationCtx,
+    marketplace: Doc<"syncs">["marketplace"]
 ): Promise<{ userId: Id<"users">; syncId: Id<"syncs"> }> {
     const userId = await getAuthUserId(ctx);
     if (!userId) {
@@ -149,7 +148,7 @@ export const updateSyncProgress = internalMutation({
             return;
         }
 
-        const patch: any = {
+        const patch: Partial<Doc<"syncs">> = {
             message: args.message,
         };
 

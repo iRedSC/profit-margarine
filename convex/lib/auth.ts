@@ -1,13 +1,11 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 
-export async function requireUserId(ctx: {
-    // Accept any Convex query/mutation ctx
-    auth?: unknown;
-    storage?: unknown;
-    db?: unknown;
-}): Promise<Id<"users">> {
-    const userId = await getAuthUserId(ctx as any);
+export async function requireUserId(
+    ctx: QueryCtx | MutationCtx
+): Promise<Id<"users">> {
+    const userId = await getAuthUserId(ctx);
     if (!userId) {
         throw new Error("Not authenticated");
     }

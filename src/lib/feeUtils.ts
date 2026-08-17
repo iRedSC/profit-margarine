@@ -54,8 +54,7 @@ export function formatFeeType(feeType: string): string {
  * Process fee breakdown array into typed format
  */
 export function processFeeBreakdown(
-    fees_breakdown: FeeBreakdown | undefined,
-    totalFees: number
+    fees_breakdown: FeeBreakdown | undefined
 ): {
     fees: ProcessedFee[];
     hasEstimatedFees: boolean;

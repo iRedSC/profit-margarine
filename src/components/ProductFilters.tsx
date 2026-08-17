@@ -1,4 +1,4 @@
-import { DateRangeType, isDateRangeType } from "../lib/dateRangeUtils";
+import { DateRangeType } from "../lib/dateRangeUtils";
 import { useState } from "react";
 
 type ProductFiltersProps = {
@@ -6,8 +6,7 @@ type ProductFiltersProps = {
     setSkuFilter: (value: string) => void;
     marketplaceFilters: Set<string>;
     toggleMarketplaceFilter: (marketplace: string) => void;
-    dateRangeStart: number | null;
-    dateRangeEnd: number | null;
+    dateRangeType: DateRangeType;
     setDateRange: (rangeType: DateRangeType) => void;
     clearFilters: () => void;
     hideSearch?: boolean;
@@ -37,8 +36,7 @@ export function ProductFilters({
     setSkuFilter,
     marketplaceFilters,
     toggleMarketplaceFilter,
-    dateRangeStart,
-    dateRangeEnd,
+    dateRangeType,
     setDateRange,
     clearFilters,
     hideSearch = false,
@@ -46,17 +44,8 @@ export function ProductFilters({
 }: ProductFiltersProps) {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-    const getCurrentDateRangeType = (): DateRangeType => {
-        for (const option of dateRangeOptions) {
-            if (isDateRangeType(dateRangeStart, dateRangeEnd, option.value)) {
-                return option.value;
-            }
-        }
-        return "today";
-    };
-
     const currentRange = dateRangeOptions.find(
-        (opt) => opt.value === getCurrentDateRangeType()
+        (opt) => opt.value === dateRangeType
     );
     const currentLabel = currentRange?.label || "Select date range";
 
@@ -147,11 +136,8 @@ export function ProductFilters({
                                                     )
                                                     .map((option) => {
                                                         const isActive =
-                                                            isDateRangeType(
-                                                                dateRangeStart,
-                                                                dateRangeEnd,
-                                                                option.value
-                                                            );
+                                                            dateRangeType ===
+                                                            option.value;
                                                         return (
                                                             <button
                                                                 key={

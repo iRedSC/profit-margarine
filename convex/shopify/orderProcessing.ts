@@ -3,7 +3,11 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { fetchShopifyGraphQL } from "./graphql";
+import { getErrorMessage } from "../marketplaceUtils";
+import {
+    fetchShopifyGraphQL,
+    type ShopifyFulfillment,
+} from "./graphql";
 import { isShippingLabelCancelled } from "./shipping";
 import { splitOrderCosts } from "../lib/orderCosts";
 
@@ -223,8 +227,7 @@ export const processShopifyOrder = internalAction({
             ) {
                 // Filter out cancelled fulfillments
                 const activeFulfillments = order.fulfillments.filter(
-                    (f: any) =>
-                        f.status && f.status.toUpperCase() !== "CANCELLED"
+                    (f) => f.status && f.status.toUpperCase() !== "CANCELLED"
                 );
 
                 // If we have shipping label cost but all fulfillments are cancelled, skip this order
@@ -246,7 +249,7 @@ export const processShopifyOrder = internalAction({
                 // Get the latest active fulfillment's createdAt
                 if (hasActiveFulfillment) {
                     const latestFulfillment = activeFulfillments.reduce(
-                        (latest: any, current: any) => {
+                        (latest: ShopifyFulfillment | null, current) => {
                             if (!latest || !latest.createdAt) return current;
                             if (!current.createdAt) return latest;
                             return new Date(current.createdAt) >
@@ -294,7 +297,7 @@ export const processShopifyOrder = internalAction({
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            const lineItems = order.lineItems.edges.map((e: any) => e.node);
+            const lineItems = order.lineItems.edges.map((e) => e.node);
             if (log.orderData) {
                 log.orderData.lineItemsCount = lineItems.length;
             }
@@ -390,7 +393,7 @@ export const processShopifyOrder = internalAction({
 
             // Calculate total quantity across all line items
             const totalQuantity = lineItems.reduce(
-                (sum: number, item: any) => sum + item.quantity,
+                (sum, item) => sum + item.quantity,
                 0
             );
             log.summary.totalQuantity = totalQuantity;
@@ -538,10 +541,10 @@ export const processShopifyOrder = internalAction({
             log.items = logItems;
             console.error(JSON.stringify(log));
             return { success: true, itemsProcessed: lineItems.length };
-        } catch (error: any) {
+        } catch (error: unknown) {
             log.errors.push({
                 step: "process_order",
-                error: error.message || String(error),
+                error: getErrorMessage(error),
                 timestamp: new Date().toISOString(),
             });
             console.error(JSON.stringify(log));

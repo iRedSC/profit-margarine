@@ -32,6 +32,7 @@ export default tseslint.config(
           "./tsconfig.node.json",
           "./tsconfig.app.json",
           "./convex/tsconfig.json",
+          "./tsconfig.test.json",
         ],
       },
     },
@@ -42,7 +43,7 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": [
-        "warn",
+        "error",
         { allowConstantExport: true },
       ],
       // All of these overrides ease getting into
@@ -51,15 +52,14 @@ export default tseslint.config(
 
       // Only warn on unused variables, and ignore variables starting with `_`
       "@typescript-eslint/no-unused-vars": [
-        "warn",
+        "error",
         { varsIgnorePattern: "^_", argsIgnorePattern: "^_" },
       ],
 
       // Allow escaping the compiler
       "@typescript-eslint/ban-ts-comment": "error",
 
-      // Allow explicit `any`s
-      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-explicit-any": "error",
 
       // START: Allow implicit `any`s
       "@typescript-eslint/no-unsafe-argument": "off",
@@ -72,6 +72,12 @@ export default tseslint.config(
       // Allow async functions without await
       // for consistency (esp. Convex `handler`s)
       "@typescript-eslint/require-await": "off",
+    },
+  },
+  {
+    files: ["src/components/ui/**/*.{ts,tsx}"],
+    rules: {
+      "react-refresh/only-export-components": "off",
     },
   },
 );

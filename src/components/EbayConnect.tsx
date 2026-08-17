@@ -1,5 +1,4 @@
 import { MarketplaceConnect, MarketplaceConnectConfig } from "./MarketplaceConnect";
-import { buildInstallUrl } from "../lib/urlUtils";
 
 type EbayConnectProps = {
   isConnected?: boolean;

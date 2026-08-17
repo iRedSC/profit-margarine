@@ -10,6 +10,7 @@ import {
     processWithProgress,
     validateSyncActive,
     finishSync,
+    isInactiveSyncError,
 } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
 import { fetchShopifyGraphQL } from "./graphql";
@@ -37,7 +38,7 @@ export const syncShopifyOrders = internalAction({
 
             // Get Shopify connection from database
             const connection = await ctx.runQuery(
-                internal.shopifyMutations.getShopifyConnection as any,
+                internal.shopifyMutations.getShopifyConnection,
                 {
                     userId: args.userId,
                 }
@@ -240,7 +241,7 @@ export const syncShopifyOrders = internalAction({
                 uniqueOrders,
                 async (orderData, _i) => {
                     await ctx.runAction(
-                        internal.shopify.processShopifyOrder as any,
+                        internal.shopify.processShopifyOrder,
                         {
                             userId: args.userId,
                             orderGid: orderData.orderGid,
@@ -261,13 +262,9 @@ export const syncShopifyOrders = internalAction({
             await finishSync(ctx, args.syncId, "shopify");
 
             return { success: true, ordersProcessed: uniqueOrders.length };
-        } catch (error: any) {
+        } catch (error: unknown) {
             // Don't treat cancellation or missing sync as an error - it's expected
-            if (
-                error.message === "Sync was canceled" ||
-                error.message === "Sync does not exist" ||
-                error.message?.includes("Sync is not active")
-            ) {
+            if (isInactiveSyncError(error)) {
                 return { success: false, canceled: true };
             }
             // Only handle error if sync still exists

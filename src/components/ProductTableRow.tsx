@@ -17,10 +17,7 @@ type ProductTableRowProps = {
         id: Id<"marketplaceProducts">,
         cost: number | undefined
     ) => void;
-    onSaveCost: (
-        id: Id<"marketplaceProducts">,
-        moveToNext: boolean
-    ) => Promise<void>;
+    onSaveCost: (id: Id<"marketplaceProducts">) => Promise<void>;
     onCancelEditing: () => void;
     orderUrl: string | null;
     onResyncOrder?: (id: Id<"marketplaceProducts">) => Promise<void>;
@@ -167,7 +164,7 @@ export function ProductTableRow({
                                 }
                             }}
                             onBlur={() => {
-                                void onSaveCost(product._id, false);
+                                void onSaveCost(product._id);
                             }}
                         />
                     ) : (

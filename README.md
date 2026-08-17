@@ -16,7 +16,7 @@ A comprehensive tool for analyzing product profitability across multiple marketp
 ### 1. Install Dependencies
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### 2. Configure Environment Variables
@@ -52,8 +52,20 @@ cp .env.local.example .env.local
 ### 4. Deploy
 
 ```bash
-npm run dev
+pnpm dev
 ```
+
+## Quality checks
+
+Run the same type checking, linting, contract tests, and production build used by CI:
+
+```bash
+pnpm check
+```
+
+Use `pnpm test:watch` while changing business rules. The contract tests in `tests/`
+cover profitability, marketplace normalization, filtering and sorting, Amazon fees,
+and data import/export compatibility.
 
 ## Usage
 

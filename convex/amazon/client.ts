@@ -2,7 +2,42 @@
 
 import AmazonSPAPI from "amazon-sp-api";
 
-const SellingPartnerAPI = (AmazonSPAPI as any).default || AmazonSPAPI;
+export type AmazonSpApiQuery = Record<string, unknown>;
+
+export type AmazonSpApi = {
+    callAPI: (params: {
+        operation: string;
+        endpoint?: string;
+        path?: Record<string, string>;
+        query?: AmazonSpApiQuery;
+    }) => Promise<unknown>;
+};
+
+type AmazonOrderRef = {
+    AmazonOrderId: string;
+};
+
+type SellingPartnerCtor = new (config: {
+    region: string;
+    refresh_token: string;
+    credentials: {
+        SELLING_PARTNER_APP_CLIENT_ID: string;
+        SELLING_PARTNER_APP_CLIENT_SECRET: string;
+    };
+}) => AmazonSpApi;
+
+const SellingPartnerAPI =
+    (AmazonSPAPI as unknown as { default?: SellingPartnerCtor }).default ||
+    (AmazonSPAPI as unknown as SellingPartnerCtor);
+
+export function asSpApiRecord(
+    value: unknown
+): Record<string, unknown> | undefined {
+    if (typeof value === "object" && value !== null) {
+        return value as Record<string, unknown>;
+    }
+    return undefined;
+}
 
 export const AMAZON_BACKFILL_LOOKBACK_MS = 72 * 60 * 60 * 1000;
 export const AMAZON_PENDING_BACKFILL_RETRY_MS = 60 * 60 * 1000;
@@ -13,7 +48,7 @@ export const AMAZON_PENDING_BACKFILL_RETRY_MS = 60 * 60 * 1000;
 // - AMAZON_REFRESH_TOKEN (Refresh Token)
 // - AMAZON_REGION (must be "na", "eu", or "fe")
 
-export function getSellingPartnerAPI() {
+export function getSellingPartnerAPI(): AmazonSpApi {
     const clientId = process.env.AMAZON_CLIENT_ID;
     const clientSecret = process.env.AMAZON_CLIENT_SECRET;
     const refreshToken = process.env.AMAZON_REFRESH_TOKEN;
@@ -47,26 +82,28 @@ export function getSellingPartnerAPI() {
 }
 
 export async function fetchAmazonOrders(
-    spApi: any,
-    query: Record<string, any>
-): Promise<Array<{ AmazonOrderId: string }>> {
-    const orders: Array<{ AmazonOrderId: string }> = [];
-    let nextToken: string | undefined;
+    spApi: AmazonSpApi,
+    query: AmazonSpApiQuery
+): Promise<AmazonOrderRef[]> {
+    const orders: AmazonOrderRef[] = [];
+    let nextToken: unknown;
 
     do {
-        const ordersResponse = await spApi.callAPI({
-            operation: "getOrders",
-            endpoint: "orders",
-            query: nextToken
-                ? { NextToken: nextToken }
-                : {
-                      ...query,
-                      MaxResultsPerPage: 100,
-                  },
-        });
+        const ordersResponse = asSpApiRecord(
+            await spApi.callAPI({
+                operation: "getOrders",
+                endpoint: "orders",
+                query: nextToken
+                    ? { NextToken: nextToken }
+                    : {
+                          ...query,
+                          MaxResultsPerPage: 100,
+                      },
+            })
+        );
 
-        orders.push(...(ordersResponse.Orders || []));
-        nextToken = ordersResponse.NextToken || ordersResponse.nextToken;
+        orders.push(...((ordersResponse?.Orders || []) as AmazonOrderRef[]));
+        nextToken = ordersResponse?.NextToken || ordersResponse?.nextToken;
     } while (nextToken);
 
     return orders;

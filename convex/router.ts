@@ -6,110 +6,81 @@ import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { ebayInstall, ebayCallback } from "./ebayRoutes";
 import { tiktokInstall, tiktokCallback } from "./tiktokRoutes";
+import {
+    createOAuthCallbackHandler,
+    createOAuthInstallHandler,
+    getErrorMessage,
+    jsonError,
+} from "./lib/oauthHttp";
 
 const http = httpRouter();
+
+const shopifyInstall = createOAuthInstallHandler({
+    missingConfigMessage: "Shopify OAuth not configured",
+    buildAuthUrl: ({ origin, searchParams }) => {
+        const shop = searchParams.get("shop");
+
+        if (!shop) {
+            return jsonError("Missing shop parameter", 400);
+        }
+
+        const clientId = process.env.SHOPIFY_CLIENT_ID;
+        if (!clientId) {
+            return jsonError("Shopify OAuth not configured", 500);
+        }
+
+        const redirectUri = `${origin}/shopify/callback`;
+        const scopes = "read_orders,read_products";
+        const nonce = crypto.randomUUID();
+
+        return `https://${shop}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${nonce}`;
+    },
+    onError: (error) => {
+        const log = {
+            endpoint: "/shopify/install",
+            step: "install",
+            error: getErrorMessage(error) || String(error),
+            timestamp: new Date().toISOString(),
+        };
+        console.error(JSON.stringify(log));
+        return jsonError("Internal server error");
+    },
+});
+
+const shopifyCallback = createOAuthCallbackHandler({
+    requiredParams: ["code", "shop"],
+    missingParamsMessage: "Missing required parameters",
+    redirectOnProviderError: false,
+    buildSuccessRedirect: ({ frontendUrl, searchParams }) =>
+        `${frontendUrl}/?shopify_code=${encodeURIComponent(searchParams.get("code")!)}&shop=${encodeURIComponent(searchParams.get("shop")!)}`,
+    onError: (error, frontendUrl) => {
+        console.error(
+            JSON.stringify({
+                endpoint: "/shopify/callback",
+                error: getErrorMessage(error) || String(error),
+            })
+        );
+        return new Response(null, {
+            status: 302,
+            headers: {
+                Location: `${frontendUrl}/?error=${encodeURIComponent(`${getErrorMessage(error)}`)}`,
+            },
+        });
+    },
+});
 
 // Shopify OAuth - Install endpoint
 http.route({
     path: "/shopify/install",
     method: "GET",
-    handler: httpAction(async (ctx, req) => {
-        try {
-            const url = new URL(req.url);
-            const shop = url.searchParams.get("shop");
-
-            if (!shop) {
-                return new Response(
-                    JSON.stringify({ error: "Missing shop parameter" }),
-                    {
-                        status: 400,
-                        headers: { "Content-Type": "application/json" },
-                    }
-                );
-            }
-
-            const clientId = process.env.SHOPIFY_CLIENT_ID;
-            if (!clientId) {
-                return new Response(
-                    JSON.stringify({ error: "Shopify OAuth not configured" }),
-                    {
-                        status: 500,
-                        headers: { "Content-Type": "application/json" },
-                    }
-                );
-            }
-
-            const redirectUri = `${url.origin}/shopify/callback`;
-            const scopes = "read_orders,read_products";
-            const nonce = crypto.randomUUID();
-
-            const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${nonce}`;
-
-            return new Response(null, {
-                status: 302,
-                headers: { Location: authUrl },
-            });
-        } catch (error: any) {
-            const log = {
-                endpoint: "/shopify/install",
-                step: "install",
-                error: error.message || String(error),
-                timestamp: new Date().toISOString(),
-            };
-            console.error(JSON.stringify(log));
-            return new Response(
-                JSON.stringify({ error: "Internal server error" }),
-                {
-                    status: 500,
-                    headers: { "Content-Type": "application/json" },
-                }
-            );
-        }
-    }),
+    handler: shopifyInstall,
 });
 
 // Shopify OAuth - Callback endpoint (token exchange happens via authenticated mutation)
 http.route({
     path: "/shopify/callback",
     method: "GET",
-    handler: httpAction(async (_ctx, req) => {
-        const frontendUrl = process.env.VITE_URL || "http://localhost:5173";
-        try {
-            const url = new URL(req.url);
-            const code = url.searchParams.get("code");
-            const shop = url.searchParams.get("shop");
-
-            if (!code || !shop) {
-                return new Response(
-                    JSON.stringify({ error: "Missing required parameters" }),
-                    {
-                        status: 400,
-                        headers: { "Content-Type": "application/json" },
-                    }
-                );
-            }
-
-            return new Response(null, {
-                status: 302,
-                headers: {
-                    Location: `${frontendUrl}/?shopify_code=${encodeURIComponent(code)}&shop=${encodeURIComponent(shop)}`,
-                },
-            });
-        } catch (error: any) {
-            console.error(
-                JSON.stringify({
-                    endpoint: "/shopify/callback",
-                    error: error.message || String(error),
-                })
-            );
-            return new Response(null, {
-                status: 302,
-                headers: {
-                    Location: `${frontendUrl}/?error=${encodeURIComponent(error.message)}`,
-                },
-            });
-        }
-    }),
+    handler: shopifyCallback,
 });
 
 // Amazon webhook endpoint for order fulfillment notifications
@@ -159,11 +130,11 @@ http.route({
                     headers: { "Content-Type": "application/json" },
                 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
             const log = {
                 endpoint: "/amazon/webhook",
                 step: "process_webhook",
-                error: error.message || String(error),
+                error: getErrorMessage(error) || String(error),
                 timestamp: new Date().toISOString(),
             };
             console.error(JSON.stringify(log));
@@ -203,12 +174,12 @@ http.route({
                     headers: { "Content-Type": "application/json" },
                 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
             // Even on error, return 200 to ensure eBay doesn't mark us as down
             // Log the error for debugging
             console.error("eBay notification error:", {
                 endpoint: "/ebay/notifications",
-                error: error.message || String(error),
+                error: getErrorMessage(error) || String(error),
                 timestamp: new Date().toISOString(),
             });
             
@@ -272,11 +243,11 @@ http.route({
                     headers: { "Content-Type": "application/json" },
                 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
             const log = {
                 endpoint: "/ebay/notifications",
                 step: "process_challenge",
-                error: error.message || String(error),
+                error: getErrorMessage(error) || String(error),
                 timestamp: new Date().toISOString(),
             };
             console.error(JSON.stringify(log));

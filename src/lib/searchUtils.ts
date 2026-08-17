@@ -28,7 +28,7 @@ function findLongestConsecutiveMatch(search: string, target: string): number {
     // Try each starting position in search
     for (let i = 0; i < searchLen; i++) {
         // Try to match as many consecutive characters as possible starting from i
-        let searchIdx = i;
+        const searchIdx = i;
         let bestMatch = 0;
         
         // For each starting position in target
