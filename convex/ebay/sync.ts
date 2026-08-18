@@ -9,10 +9,16 @@ import {
     handleSyncError,
     processWithProgress,
     validateSyncActive,
+    finishSync,
+    isInactiveSyncError,
 } from "../marketplaceUtils";
-import { finishSync } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
-import { getEbayAccessToken } from "./transactions";
+import {
+    getEbayAccessToken,
+    parseEbayAmount,
+    readEbayTransactionsPage,
+    type EbayTransaction,
+} from "./transactions";
 
 type SyncResult =
     | { success: boolean; ordersProcessed: number }
@@ -68,7 +74,7 @@ export const syncEbayOrders = internalAction({
                 ? "https://apiz.sandbox.ebay.com"
                 : "https://apiz.ebay.com";
 
-            const allTransactions: any[] = [];
+            const allTransactions: EbayTransaction[] = [];
 
             for (
                 let batchIndex = 0;
@@ -120,8 +126,10 @@ export const syncEbayOrders = internalAction({
                     );
                 }
 
-                const transactionsData = await transactionsResponse.json();
-                const transactions = transactionsData.transactions || [];
+                const transactionsData: unknown =
+                    await transactionsResponse.json();
+                const { transactions } =
+                    readEbayTransactionsPage(transactionsData);
                 allTransactions.push(...transactions);
 
                 if (batchIndex < batches.length - 1) {
@@ -130,7 +138,7 @@ export const syncEbayOrders = internalAction({
             }
 
             const shippingTransactions = allTransactions.filter(
-                (t: any) => t.transactionType === "SHIPPING_LABEL"
+                (t) => t.transactionType === "SHIPPING_LABEL"
             );
 
             const orderIds = new Set<string>();
@@ -141,7 +149,7 @@ export const syncEbayOrders = internalAction({
                     orderIds.add(transaction.orderId);
                     // Accumulate shipping costs (don't overwrite - orders can have multiple shipping labels)
                     const shippingAmount = Math.abs(
-                        parseFloat(transaction.amount?.value || "0")
+                        parseEbayAmount(transaction.amount)
                     );
                     shippingCostsByOrder[transaction.orderId] =
                         (shippingCostsByOrder[transaction.orderId] || 0) +
@@ -181,12 +189,8 @@ export const syncEbayOrders = internalAction({
             await finishSync(ctx, args.syncId, "ebay");
 
             return { success: true, ordersProcessed: processedCount };
-        } catch (error: any) {
-            if (
-                error.message === "Sync was canceled" ||
-                error.message === "Sync does not exist" ||
-                error.message?.includes("Sync is not active")
-            ) {
+        } catch (error: unknown) {
+            if (isInactiveSyncError(error)) {
                 return { success: false, canceled: true };
             }
             const syncExists = await ctx.runQuery(
@@ -222,6 +226,6 @@ export const syncEbayOrdersOneYear = internalAction({
             endDate: endDate.toISOString(),
             updateExisting: args.updateExisting ?? false,
         });
-        return result as SyncResult;
+        return result;
     },
 });

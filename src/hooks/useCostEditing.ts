@@ -1,11 +1,9 @@
 import { useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { toast } from "sonner";
-import { Product } from "../types/product";
 
 export function useCostEditing(
-  updateMarketplaceCost: (args: { marketplaceProductId: Id<"marketplaceProducts">; cost: number | undefined }) => Promise<null>,
-  sortedProducts: Product[]
+  updateMarketplaceCost: (args: { marketplaceProductId: Id<"marketplaceProducts">; cost: number | undefined }) => Promise<null>
 ) {
   const [editingCostId, setEditingCostId] = useState<Id<"marketplaceProducts"> | null>(null);
   const [editingCostValue, setEditingCostValue] = useState("");
@@ -15,20 +13,13 @@ export function useCostEditing(
     setEditingCostValue((currentCost || 0).toString());
   };
 
-  const saveCost = async (marketplaceProductId: Id<"marketplaceProducts">, moveToNext: boolean = false): Promise<void> => {
+  const saveCost = async (marketplaceProductId: Id<"marketplaceProducts">): Promise<void> => {
     if (editingCostValue.trim() === "") {
       setEditingCostId(null);
       try {
         await updateMarketplaceCost({ marketplaceProductId, cost: undefined });
         toast.success("Cost cleared");
-        if (moveToNext) {
-          const currentIndex = sortedProducts.findIndex(p => p._id === marketplaceProductId);
-          const nextUnsetProduct = sortedProducts.slice(currentIndex + 1).find(p => p.cost === undefined);
-          if (nextUnsetProduct) {
-            startEditing(nextUnsetProduct._id, nextUnsetProduct.cost);
-          }
-        }
-      } catch (error) {
+      } catch {
         toast.error("Failed to clear cost");
       }
       return;
@@ -48,15 +39,7 @@ export function useCostEditing(
     try {
       await updateMarketplaceCost({ marketplaceProductId, cost: costToSave });
       toast.success(costToSave === undefined ? "Cost cleared" : "Cost updated");
-      
-      if (moveToNext) {
-        const currentIndex = sortedProducts.findIndex(p => p._id === marketplaceProductId);
-        const nextUnsetProduct = sortedProducts.slice(currentIndex + 1).find(p => p.cost === undefined);
-        if (nextUnsetProduct) {
-          startEditing(nextUnsetProduct._id, nextUnsetProduct.cost);
-        }
-      }
-    } catch (error) {
+    } catch {
       toast.error("Failed to update cost");
     }
   };

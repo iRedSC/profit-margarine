@@ -2,6 +2,7 @@
 
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import type { ActionCtx } from "./_generated/server";
 import type { MarketplaceType } from "./marketplaceConnections";
 import { SyncMessages } from "./syncMessages";
 
@@ -33,137 +34,54 @@ export function generateMonthlyBatches(
     return batches;
 }
 
-/**
- * Progress tracking types for different marketplaces
- */
-export type MarketplaceProgress = {
+type MarketplaceProgress = {
     current: number;
     total: number;
 };
 
-/**
- * Create a new sync record for a marketplace
- */
-export async function createSync(
-    ctx: any,
-    userId: Id<"users">,
-    marketplace: MarketplaceType,
-    message?: string
-): Promise<Id<"syncs">> {
-    const syncMessage = message || SyncMessages.starting(marketplace);
-    const syncId = await ctx.db.insert("syncs", {
-        userId,
-        marketplace,
-        status: "active",
-        total: 0,
-        complete: 0,
-        message: syncMessage,
-        startedAt: Date.now(),
-    });
-
-    return syncId;
-}
-
-/**
- * Update sync progress (internal helper for mutation context)
- */
-async function updateSync(
-    ctx: any,
-    syncId: Id<"syncs">,
-    updates: {
-        total?: number;
-        complete?: number;
-        message?: string;
-        status?: "active" | "canceled" | "finished";
-        error?: string;
-    }
-): Promise<void> {
-    const patch: any = {};
-
-    if (updates.total !== undefined) {
-        patch.total = updates.total;
-    }
-    if (updates.complete !== undefined) {
-        patch.complete = updates.complete;
-    }
-    if (updates.message !== undefined) {
-        patch.message = updates.message;
-    }
-    if (updates.status !== undefined) {
-        patch.status = updates.status;
-        if (updates.status === "finished" || updates.status === "canceled") {
-            patch.finishedAt = Date.now();
+export function getErrorMessage(error: unknown): string {
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const { message } = error;
+        if (typeof message === "string" && message) {
+            return message;
         }
     }
-    if (updates.error !== undefined) {
-        patch.error = updates.error;
-        patch.status = "finished";
-        patch.finishedAt = Date.now();
-    }
-
-    await ctx.db.patch(syncId, patch);
+    return String(error);
 }
 
-/**
- * Cancel an active sync
- * Works from both mutations and actions
- */
-export async function cancelSync(
-    ctx: any,
-    syncId: Id<"syncs">,
-    reason?: string
-): Promise<void> {
-    const message = SyncMessages.canceled(reason);
-    // Check if we're in an action context (has runMutation) or mutation context (has db)
-    if (ctx.runMutation) {
-        // Action context - use internal mutation
-        const cancelSyncMutation = internal.products.cancelSync;
-        await ctx.runMutation(cancelSyncMutation as any, {
-            syncId,
-            message,
-        });
-    } else {
-        // Mutation context - direct db access
-        await updateSync(ctx, syncId, {
-            status: "canceled",
-            message,
-        });
+export function isInactiveSyncError(error: unknown): boolean {
+    if (typeof error !== "object" || error === null || !("message" in error)) {
+        return false;
     }
+    const { message } = error;
+    return (
+        message === "Sync was canceled" ||
+        message === "Sync does not exist" ||
+        (typeof message === "string" && message.includes("Sync is not active"))
+    );
 }
 
 /**
  * Finish a sync successfully
- * Works from both mutations and actions
  */
 export async function finishSync(
-    ctx: any,
+    ctx: ActionCtx,
     syncId: Id<"syncs">,
     marketplace?: MarketplaceType,
     message?: string
 ): Promise<void> {
     const syncMessage = message || SyncMessages.complete(marketplace);
-    // Check if we're in an action context (has runMutation) or mutation context (has db)
-    if (ctx.runMutation) {
-        // Action context - use internal mutation
-        await ctx.runMutation(internal.products.finishSync, {
-            syncId,
-            message: syncMessage,
-        });
-    } else {
-        // Mutation context - direct db access
-        await updateSync(ctx, syncId, {
-            status: "finished",
-            message: syncMessage,
-        });
-    }
+    await ctx.runMutation(internal.products.finishSync, {
+        syncId,
+        message: syncMessage,
+    });
 }
 
 /**
  * Mark sync as failed
- * Works from both mutations and actions
  */
-export async function failSync(
-    ctx: any,
+async function failSync(
+    ctx: ActionCtx,
     syncId: Id<"syncs">,
     error: string,
     marketplace?: MarketplaceType
@@ -172,68 +90,11 @@ export async function failSync(
         ? SyncMessages.failed(marketplace, error)
         : `Sync failed: ${error}`;
 
-    // Check if we're in an action context (has runMutation) or mutation context (has db)
-    if (ctx.runMutation) {
-        // Action context - use internal mutation
-        await ctx.runMutation(internal.products.failSync, {
-            syncId,
-            error,
-            message,
-        });
-    } else {
-        // Mutation context - direct db access
-        await updateSync(ctx, syncId, {
-            status: "finished",
-            error,
-            message,
-        });
-    }
-}
-
-/**
- * Cancel all active syncs for a specific marketplace and user
- */
-export async function cancelActiveSyncsForMarketplace(
-    ctx: any,
-    userId: Id<"users">,
-    marketplace: MarketplaceType
-): Promise<void> {
-    // Check if we're in an action context (has runMutation) or mutation context (has db)
-    if (ctx.runMutation) {
-        // Action context - use internal mutation
-        await ctx.runMutation(
-            internal.products.cancelActiveSyncsForMarketplace,
-            {
-                userId,
-                marketplace,
-            }
-        );
-    } else {
-        // Mutation context - direct db access
-        const activeSyncs = await ctx.db
-            .query("syncs")
-            .withIndex("by_user_and_marketplace", (q: any) =>
-                q.eq("userId", userId).eq("marketplace", marketplace)
-            )
-            .filter((q: any) => q.eq(q.field("status"), "active"))
-            .collect();
-
-        for (const sync of activeSyncs) {
-            await cancelSync(ctx, sync._id, "new sync started");
-        }
-    }
-}
-
-/**
- * Check if a sync exists and is active
- * Returns true if sync exists and is active, false otherwise
- */
-export async function isSyncActive(
-    ctx: any,
-    syncId: Id<"syncs">
-): Promise<boolean> {
-    const sync = await ctx.runQuery(internal.products.getSyncById, { syncId });
-    return sync !== null && sync.status === "active";
+    await ctx.runMutation(internal.products.failSync, {
+        syncId,
+        error,
+        message,
+    });
 }
 
 /**
@@ -241,7 +102,7 @@ export async function isSyncActive(
  * Throws an error if sync doesn't exist or is not active
  */
 export async function validateSyncActive(
-    ctx: any,
+    ctx: ActionCtx,
     syncId: Id<"syncs">
 ): Promise<void> {
     const sync = await ctx.runQuery(internal.products.getSyncById, { syncId });
@@ -254,21 +115,10 @@ export async function validateSyncActive(
 }
 
 /**
- * Check if a sync has been canceled
- */
-export async function isSyncCanceled(
-    ctx: any,
-    syncId: Id<"syncs">
-): Promise<boolean> {
-    const sync = await ctx.runQuery(internal.products.getSyncById, { syncId });
-    return sync === null || sync.status === "canceled";
-}
-
-/**
  * Update sync progress
  */
 export async function updateSyncProgress(
-    ctx: any,
+    ctx: ActionCtx,
     syncId: Id<"syncs">,
     message: string,
     progress?: MarketplaceProgress
@@ -288,23 +138,24 @@ export async function updateSyncProgress(
  * Handle sync error with proper cleanup
  */
 export async function handleSyncError(
-    ctx: any,
+    ctx: ActionCtx,
     syncId: Id<"syncs">,
-    error: any,
+    error: unknown,
     marketplace: MarketplaceType
-) {
+): Promise<void> {
     const marketplaceName =
         marketplace.charAt(0).toUpperCase() + marketplace.slice(1);
+    const message = getErrorMessage(error);
     const log = {
         operation: "sync_orders",
         marketplace: marketplaceName,
         syncId: syncId.toString(),
-        error: error.message || String(error),
+        error: message,
         timestamp: new Date().toISOString(),
     };
     console.error(JSON.stringify(log));
 
-    await failSync(ctx, syncId, error.message || String(error), marketplace);
+    await failSync(ctx, syncId, message, marketplace);
 
     throw error;
 }
@@ -313,7 +164,7 @@ export async function handleSyncError(
  * Process items with progress tracking
  */
 export async function processWithProgress<T>(
-    ctx: any,
+    ctx: ActionCtx,
     syncId: Id<"syncs">,
     items: T[],
     processor: (item: T, index: number) => Promise<void>,

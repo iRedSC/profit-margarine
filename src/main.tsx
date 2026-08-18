@@ -22,7 +22,7 @@ if (shopifyHost && shopifyShop && import.meta.env.VITE_SHOPIFY_API_KEY) {
   
   try {
     createApp(appBridgeConfig);
-  } catch (error) {
+  } catch {
     // Failed to initialize Shopify App Bridge
   }
 }

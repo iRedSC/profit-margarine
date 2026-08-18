@@ -1,6 +1,15 @@
 export type SortField = "sku" | "name" | "marketplace" | "price" | "cost" | "fees" | "shipping" | "profit" | "margin" | "orderDate" | "fulfillmentDate";
 export type SortDirection = "asc" | "desc";
 
+export type ShippingAmounts = {
+  shipping: number;
+  buyerPaidShipping?: number;
+};
+
+export function getNetShipping(product: ShippingAmounts): number {
+  return product.shipping - (product.buyerPaidShipping ?? 0);
+}
+
 export function calculateProfit(price: number, cost: number | undefined, fees: number, shipping: number): number {
   return price - (cost || 0) - fees - shipping;
 }

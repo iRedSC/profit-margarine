@@ -5,6 +5,7 @@ import { Input } from "./ui/input";
 import { Loader2 } from "lucide-react";
 import { MarketplaceConnect, MarketplaceConnectConfig } from "./MarketplaceConnect";
 import { buildInstallUrl } from "../lib/urlUtils";
+import { getErrorMessage } from "../lib/errors";
 
 type ShopifyConnectProps = {
   isConnected?: boolean;
@@ -42,8 +43,8 @@ export function ShopifyConnect({ isConnected }: ShopifyConnectProps) {
       // Redirect to OAuth flow - use Convex site URL for HTTP routes
       const installUrl = buildInstallUrl("/shopify/install", { shop: normalizedShop });
       window.location.href = installUrl;
-    } catch (error: any) {
-      toast.error(`Connection failed: ${error.message}`);
+    } catch (error: unknown) {
+      toast.error(`Connection failed: ${getErrorMessage(error)}`);
       setIsConnecting(false);
     }
   };
@@ -59,7 +60,7 @@ export function ShopifyConnect({ isConnected }: ShopifyConnectProps) {
       "After authorization, you'll be redirected back to sync orders",
     ],
     customForm: (
-      <form onSubmit={handleConnect} className="space-y-4">
+      <form onSubmit={(event) => void handleConnect(event)} className="space-y-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">
             Shop Domain

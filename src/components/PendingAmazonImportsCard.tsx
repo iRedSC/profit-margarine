@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { AlertCircle, Loader2, RefreshCcw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { getErrorMessage } from "../lib/errors";
 
 export function PendingAmazonImportsCard() {
     const pendingImports = useQuery(api.products.listPendingMarketplaceImports);
@@ -24,9 +25,9 @@ export function PendingAmazonImportsCard() {
         try {
             await retryPendingAmazonImports({});
             toast.success("Pending Amazon retry started.");
-        } catch (error: any) {
+        } catch (error: unknown) {
             toast.error(
-                `Failed to retry pending Amazon imports: ${error.message || "Unknown error"}`
+                `Failed to retry pending Amazon imports: ${getErrorMessage(error)}`
             );
         } finally {
             setRetryingAll(false);
@@ -41,9 +42,9 @@ export function PendingAmazonImportsCard() {
                 orderId,
             });
             toast.success(`Retry started for Amazon order ${orderId}.`);
-        } catch (error: any) {
+        } catch (error: unknown) {
             toast.error(
-                `Failed to retry Amazon order ${orderId}: ${error.message || "Unknown error"}`
+                `Failed to retry Amazon order ${orderId}: ${getErrorMessage(error)}`
             );
         } finally {
             setRetryingOrderId(null);

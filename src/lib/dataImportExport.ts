@@ -56,7 +56,12 @@ export type ParsedDataRow = {
   shipping_breakdown?: Array<Array<string | number>>;
 };
 
-const MARKETPLACES = new Set(["Ebay", "Amazon", "Shopify", "TikTok"]);
+const MARKETPLACES: readonly MarketplaceLiteral[] = [
+  "Ebay",
+  "Amazon",
+  "Shopify",
+  "TikTok",
+];
 
 function findHeader(
   headers: string[],
@@ -79,9 +84,42 @@ function findHeader(
   return undefined;
 }
 
+function findExactHeader(
+  headers: string[],
+  ...candidates: string[]
+): string | undefined {
+  const keys = new Set(
+    candidates.map((candidate) =>
+      candidate.toLowerCase().replace(/[\s_]/g, ""),
+    ),
+  );
+  return headers.find((header) =>
+    keys.has(header.toLowerCase().replace(/[\s_]/g, "")),
+  );
+}
+
 function formatDate(value: number | undefined): string {
   if (value === undefined || value === null || Number.isNaN(value)) return "";
   return new Date(value).toISOString();
+}
+
+function cellString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function isBreakdown(value: unknown): value is Array<Array<string | number>> {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (row) =>
+        Array.isArray(row) &&
+        row.every((item) => typeof item === "string" || typeof item === "number"),
+    )
+  );
 }
 
 function parseDate(value: unknown): number | undefined {
@@ -93,7 +131,8 @@ function parseDate(value: unknown): number | undefined {
     }
     return value;
   }
-  const str = String(value).trim();
+  if (typeof value !== "string") return undefined;
+  const str = value.trim();
   if (!str) return undefined;
   const parsed = Date.parse(str);
   if (!Number.isNaN(parsed)) return parsed;
@@ -104,7 +143,8 @@ function parseDate(value: unknown): number | undefined {
 
 function parseOptionalNumber(value: unknown): number | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  const n = typeof value === "number" ? value : parseFloat(String(value));
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  const n = typeof value === "number" ? value : parseFloat(value);
   return Number.isNaN(n) ? undefined : n;
 }
 
@@ -117,14 +157,11 @@ function parseBreakdown(
   value: unknown
 ): Array<Array<string | number>> | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  if (Array.isArray(value)) {
-    return value as Array<Array<string | number>>;
-  }
+  if (isBreakdown(value)) return value;
+  if (typeof value !== "string") return undefined;
   try {
-    const parsed = JSON.parse(String(value));
-    if (Array.isArray(parsed)) {
-      return parsed as Array<Array<string | number>>;
-    }
+    const parsed: unknown = JSON.parse(value);
+    if (isBreakdown(parsed)) return parsed;
   } catch {
     return undefined;
   }
@@ -132,7 +169,7 @@ function parseBreakdown(
 }
 
 function normalizeMarketplace(value: unknown): MarketplaceLiteral | null {
-  const raw = String(value || "").trim();
+  const raw = cellString(value).trim();
   if (!raw) return null;
   const matched = [...MARKETPLACES].find(
     (m) => m.toLowerCase() === raw.toLowerCase()
@@ -186,7 +223,7 @@ export function parseDataRowsFromSheet(
   if (jsonData.length === 0) return [];
 
   const headers = Object.keys(jsonData[0] || {});
-  const idHeader = findHeader(headers, "id", "_id");
+  const idHeader = findExactHeader(headers, "id", "_id");
   const skuHeader = findHeader(headers, "sku");
   const nameHeader = findHeader(headers, "name");
   const marketplaceHeader = findHeader(headers, "marketplace");
@@ -234,7 +271,7 @@ export function parseDataRowsFromSheet(
   const rows: ParsedDataRow[] = [];
 
   for (const row of jsonData) {
-    const sku = String(row[skuHeader] || "").trim();
+    const sku = cellString(row[skuHeader]).trim();
     const marketplace = normalizeMarketplace(row[marketplaceHeader]);
     const orderDate = parseDate(row[orderDateHeader]);
     if (!sku || !marketplace || orderDate === undefined) continue;
@@ -249,11 +286,11 @@ export function parseDataRowsFromSheet(
     };
 
     if (idHeader) {
-      const id = String(row[idHeader] || "").trim();
+      const id = cellString(row[idHeader]).trim();
       if (id) parsed.id = id;
     }
     if (nameHeader) {
-      const name = String(row[nameHeader] || "").trim();
+      const name = cellString(row[nameHeader]).trim();
       if (name) parsed.name = name;
     }
     const cost = costHeader ? parseOptionalNumber(row[costHeader]) : undefined;
@@ -279,10 +316,10 @@ export function parseDataRowsFromSheet(
     if (fulfillmentDate !== undefined) parsed.fulfillmentDate = fulfillmentDate;
 
     const orderIdFromHeader = orderIdHeader
-      ? String(row[orderIdHeader] || "").trim()
+      ? cellString(row[orderIdHeader]).trim()
       : "";
     const orderIdFromLegacy = OrderIdHeader
-      ? String(row[OrderIdHeader] || "").trim()
+      ? cellString(row[OrderIdHeader]).trim()
       : "";
     const orderId = orderIdFromHeader || orderIdFromLegacy;
     if (orderId) parsed.orderId = orderId;

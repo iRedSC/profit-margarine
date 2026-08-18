@@ -118,8 +118,8 @@ export function Tooltip({
             <div
                 ref={triggerRef}
                 className={`group relative ${className}`}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
+                onMouseEnter={showOnHover ? handleMouseEnter : undefined}
+                onMouseLeave={showOnHover ? handleMouseLeave : undefined}
             >
                 {children}
             </div>

@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -15,9 +15,9 @@ import {
 } from "recharts";
 import { ProductFilters } from "./ProductFilters";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
+import { useProductFilters } from "../hooks/useProductFilters";
+import { filterProducts } from "../lib/productListUtils";
 import { formatCurrency } from "../lib/productUtils";
-import { searchProduct } from "../lib/searchUtils";
 import {
   buildMarketplaceStats,
   buildPeriodStats,
@@ -27,6 +27,7 @@ import {
   enrichProducts,
   granularityAdjective,
   granularityLabel,
+  type PeriodStats,
 } from "../lib/statsUtils";
 
 const GRANULARITY_OPTIONS: Array<{ value: ChartGranularity; label: string }> = [
@@ -45,6 +46,10 @@ const CHART_COLORS = {
 
 function currencyTooltipValue(value: number) {
   return `$${formatCurrency(value)}`;
+}
+
+function currencyTick(value: number) {
+  return `$${value}`;
 }
 
 function ChartEmptyState({ message }: { message: string }) {
@@ -82,17 +87,35 @@ function ChartGranularityToggle({
   );
 }
 
+type PeriodLine = {
+  dataKey: "profit" | "revenue" | "cost" | "margin";
+  stroke: string;
+  name?: string;
+  activeDot?: { r: number };
+};
+
+type PeriodLineChartProps = {
+  title: string;
+  description: string;
+  granularity: ChartGranularity;
+  onGranularityChange: (value: ChartGranularity) => void;
+  data: PeriodStats[];
+  emptyMessage: string;
+  yTickFormatter: (value: number) => string;
+  tooltipFormatter: (value: number, name: string) => [string, string];
+  showLegend?: boolean;
+  lines: PeriodLine[];
+};
+
 function PeriodChartHeader({
   title,
   description,
   granularity,
   onGranularityChange,
-}: {
-  title: string;
-  description: string;
-  granularity: ChartGranularity;
-  onGranularityChange: (value: ChartGranularity) => void;
-}) {
+}: Pick<
+  PeriodLineChartProps,
+  "title" | "description" | "granularity" | "onGranularityChange"
+>) {
   return (
     <CardHeader className="space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -106,6 +129,64 @@ function PeriodChartHeader({
         />
       </div>
     </CardHeader>
+  );
+}
+
+function PeriodLineChart({
+  title,
+  description,
+  granularity,
+  onGranularityChange,
+  data,
+  emptyMessage,
+  yTickFormatter,
+  tooltipFormatter,
+  showLegend = false,
+  lines,
+}: PeriodLineChartProps) {
+  return (
+    <Card>
+      <PeriodChartHeader
+        title={title}
+        description={description}
+        granularity={granularity}
+        onGranularityChange={onGranularityChange}
+      />
+      <CardContent>
+        {data.length === 0 ? (
+          <ChartEmptyState message={emptyMessage} />
+        ) : (
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12 }}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
+                />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={yTickFormatter} />
+                <Tooltip formatter={tooltipFormatter} />
+                {showLegend && <Legend />}
+                {lines.map((line) => (
+                  <Line
+                    key={line.dataKey}
+                    type="monotone"
+                    dataKey={line.dataKey}
+                    name={line.name}
+                    stroke={line.stroke}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={line.activeDot}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -218,20 +299,21 @@ function RankingTable({
 
 export function StatsDashboard() {
   const productsQuery = useQuery(api.products.listProducts);
-  const products = productsQuery ?? [];
+  const products = useMemo(() => productsQuery ?? [], [productsQuery]);
   const productsLoading = productsQuery === undefined;
 
-  const [skuFilterInput, setSkuFilterInput] = useState("");
-  const [skuFilter, setSkuFilter] = useState("");
-  const [marketplaceFilters, setMarketplaceFilters] = useState<Set<string>>(
-    new Set()
-  );
-  const [dateRangeStart, setDateRangeStart] = useState<number | null>(() => {
-    return getDateRange("last30Days").start;
-  });
-  const [dateRangeEnd, setDateRangeEnd] = useState<number | null>(() => {
-    return getDateRange("last30Days").end;
-  });
+  const {
+    searchInput,
+    setSearchInput,
+    search,
+    marketplaceFilters,
+    toggleMarketplaceFilter,
+    dateRangeType,
+    setDateRange,
+    dateRangeStart,
+    dateRangeEnd,
+    clearFilters: resetProductFilters,
+  } = useProductFilters("last30Days");
   const [profitGranularity, setProfitGranularity] =
     useState<ChartGranularity>("day");
   const [revenueGranularity, setRevenueGranularity] =
@@ -239,60 +321,24 @@ export function StatsDashboard() {
   const [marginGranularity, setMarginGranularity] =
     useState<ChartGranularity>("day");
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSkuFilter(skuFilterInput);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [skuFilterInput]);
-
-  const toggleMarketplaceFilter = (marketplace: string) => {
-    const next = new Set(marketplaceFilters);
-    if (next.has(marketplace)) {
-      next.delete(marketplace);
-    } else {
-      next.add(marketplace);
-    }
-    setMarketplaceFilters(next);
-  };
-
-  const setDateRange = (rangeType: DateRangeType) => {
-    const range = getDateRange(rangeType);
-    setDateRangeStart(range.start);
-    setDateRangeEnd(range.end);
-  };
-
   const clearFilters = () => {
-    setSkuFilterInput("");
-    setSkuFilter("");
-    setMarketplaceFilters(new Set());
-    setDateRange("last30Days");
+    resetProductFilters();
     setProfitGranularity("day");
     setRevenueGranularity("day");
     setMarginGranularity("day");
   };
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      if (skuFilter && !searchProduct(skuFilter, product.sku, product.name)) {
-        return false;
-      }
-      if (
-        marketplaceFilters.size > 0 &&
-        !marketplaceFilters.has(product.marketplace)
-      ) {
-        return false;
-      }
-      // Stats day charts and rankings are keyed by order date
-      if (dateRangeStart !== null && product.orderDate < dateRangeStart) {
-        return false;
-      }
-      if (dateRangeEnd !== null && product.orderDate > dateRangeEnd) {
-        return false;
-      }
-      return true;
-    });
-  }, [products, skuFilter, marketplaceFilters, dateRangeStart, dateRangeEnd]);
+  const filteredProducts = useMemo(
+    () =>
+      filterProducts(products, {
+        search,
+        marketplaces: marketplaceFilters,
+        start: dateRangeStart,
+        end: dateRangeEnd,
+        dateField: "orderDate",
+      }),
+    [products, search, marketplaceFilters, dateRangeStart, dateRangeEnd]
+  );
 
   const enriched = useMemo(
     () => enrichProducts(filteredProducts),
@@ -342,12 +388,11 @@ export function StatsDashboard() {
       </div>
 
       <ProductFilters
-        skuFilter={skuFilterInput}
-        setSkuFilter={setSkuFilterInput}
+        skuFilter={searchInput}
+        setSkuFilter={setSearchInput}
         marketplaceFilters={marketplaceFilters}
         toggleMarketplaceFilter={toggleMarketplaceFilter}
-        dateRangeStart={dateRangeStart}
-        dateRangeEnd={dateRangeEnd}
+        dateRangeType={dateRangeType}
         setDateRange={setDateRange}
         clearFilters={clearFilters}
         title="Filter Stats"
@@ -406,154 +451,71 @@ export function StatsDashboard() {
       ) : (
         <>
           <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <PeriodChartHeader
-                title={`Profit per ${granularityLabel(profitGranularity)}`}
-                description={`Net profit by order ${granularityLabel(profitGranularity)} (orders with cost data)`}
-                granularity={profitGranularity}
-                onGranularityChange={setProfitGranularity}
-              />
-              <CardContent>
-                {profitStats.length === 0 ? (
-                  <ChartEmptyState
-                    message={`No ${granularityAdjective(profitGranularity)} profit data for this range.`}
-                  />
-                ) : (
-                  <div className="h-[280px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={profitStats}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fontSize: 12 }}
-                          interval="preserveStartEnd"
-                          minTickGap={24}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          tickFormatter={(v) => `$${v}`}
-                        />
-                        <Tooltip
-                          formatter={(value: number) => [
-                            currencyTooltipValue(value),
-                            "Profit",
-                          ]}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="profit"
-                          stroke={CHART_COLORS.profit}
-                          strokeWidth={2}
-                          dot={false}
-                          activeDot={{ r: 4 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <PeriodLineChart
+              title={`Profit per ${granularityLabel(profitGranularity)}`}
+              description={`Net profit by order ${granularityLabel(profitGranularity)} (orders with cost data)`}
+              granularity={profitGranularity}
+              onGranularityChange={setProfitGranularity}
+              data={profitStats}
+              emptyMessage={`No ${granularityAdjective(profitGranularity)} profit data for this range.`}
+              yTickFormatter={currencyTick}
+              tooltipFormatter={(value) => [
+                currencyTooltipValue(value),
+                "Profit",
+              ]}
+              lines={[
+                {
+                  dataKey: "profit",
+                  stroke: CHART_COLORS.profit,
+                  activeDot: { r: 4 },
+                },
+              ]}
+            />
 
-            <Card>
-              <PeriodChartHeader
-                title={`Revenue vs Cost per ${granularityLabel(revenueGranularity)}`}
-                description={`Gross revenue compared to product cost by order ${granularityLabel(revenueGranularity)}`}
-                granularity={revenueGranularity}
-                onGranularityChange={setRevenueGranularity}
-              />
-              <CardContent>
-                {revenueStats.length === 0 ? (
-                  <ChartEmptyState message="No revenue/cost data for this range." />
-                ) : (
-                  <div className="h-[280px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={revenueStats}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fontSize: 12 }}
-                          interval="preserveStartEnd"
-                          minTickGap={24}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          tickFormatter={(v) => `$${v}`}
-                        />
-                        <Tooltip
-                          formatter={(value: number, name: string) => [
-                            currencyTooltipValue(value),
-                            name === "revenue" ? "Revenue" : "Cost",
-                          ]}
-                        />
-                        <Legend />
-                        <Line
-                          type="monotone"
-                          dataKey="revenue"
-                          name="Revenue"
-                          stroke={CHART_COLORS.revenue}
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="cost"
-                          name="Cost"
-                          stroke={CHART_COLORS.cost}
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <PeriodLineChart
+              title={`Revenue vs Cost per ${granularityLabel(revenueGranularity)}`}
+              description={`Gross revenue compared to product cost by order ${granularityLabel(revenueGranularity)}`}
+              granularity={revenueGranularity}
+              onGranularityChange={setRevenueGranularity}
+              data={revenueStats}
+              emptyMessage="No revenue/cost data for this range."
+              yTickFormatter={currencyTick}
+              tooltipFormatter={(value, name) => [
+                currencyTooltipValue(value),
+                name === "revenue" ? "Revenue" : "Cost",
+              ]}
+              showLegend
+              lines={[
+                {
+                  dataKey: "revenue",
+                  name: "Revenue",
+                  stroke: CHART_COLORS.revenue,
+                },
+                {
+                  dataKey: "cost",
+                  name: "Cost",
+                  stroke: CHART_COLORS.cost,
+                },
+              ]}
+            />
 
-            <Card>
-              <PeriodChartHeader
-                title="Margin % Trend"
-                description={`Average margin per ${granularityLabel(marginGranularity)} across priced orders`}
-                granularity={marginGranularity}
-                onGranularityChange={setMarginGranularity}
-              />
-              <CardContent>
-                {marginStats.length === 0 ? (
-                  <ChartEmptyState message="No margin data for this range." />
-                ) : (
-                  <div className="h-[280px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={marginStats}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fontSize: 12 }}
-                          interval="preserveStartEnd"
-                          minTickGap={24}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          tickFormatter={(v) => `${v}%`}
-                        />
-                        <Tooltip
-                          formatter={(value: number) => [
-                            `${value.toFixed(1)}%`,
-                            "Margin",
-                          ]}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="margin"
-                          stroke={CHART_COLORS.margin}
-                          strokeWidth={2}
-                          dot={false}
-                          activeDot={{ r: 4 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <PeriodLineChart
+              title="Margin % Trend"
+              description={`Average margin per ${granularityLabel(marginGranularity)} across priced orders`}
+              granularity={marginGranularity}
+              onGranularityChange={setMarginGranularity}
+              data={marginStats}
+              emptyMessage="No margin data for this range."
+              yTickFormatter={(value) => `${value}%`}
+              tooltipFormatter={(value) => [`${value.toFixed(1)}%`, "Margin"]}
+              lines={[
+                {
+                  dataKey: "margin",
+                  stroke: CHART_COLORS.margin,
+                  activeDot: { r: 4 },
+                },
+              ]}
+            />
 
             <Card>
               <CardHeader>

@@ -15,6 +15,7 @@ import {
     productCostsToExportSheet,
     productRowsToExportSheet,
 } from "../lib/dataImportExport";
+import { getErrorMessage } from "../lib/errors";
 
 export function Header() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -42,7 +43,7 @@ export function Header() {
         api.products.syncEbayOrdersOneYear
     );
     const syncShopifyOrdersOneYear = useMutation(
-        api.shopifyMutations.syncShopifyOrdersOneYear
+        api.products.syncShopifyOrdersOneYear
     );
     const resyncAllOrders = useMutation(api.products.resyncAllOrders);
     const cancelAllActiveSyncs = useMutation(api.products.cancelAllActiveSyncs);
@@ -103,8 +104,8 @@ export function Header() {
                 await syncShopifyOrders({ updateExisting });
                 toast.success("Sync started for all marketplaces!");
             }
-        } catch (error: any) {
-            toast.error(`Sync failed: ${error.message || "Unknown error"}`);
+        } catch (error: unknown) {
+            toast.error(`Sync failed: ${getErrorMessage(error)}`);
         } finally {
             setIsSyncing(false);
         }
@@ -118,10 +119,8 @@ export function Header() {
             await syncEbayOrdersOneYear({});
             await syncShopifyOrdersOneYear({});
             toast.success("1-year sync started for all marketplaces!");
-        } catch (error: any) {
-            toast.error(
-                `1-year sync failed: ${error.message || "Unknown error"}`
-            );
+        } catch (error: unknown) {
+            toast.error(`1-year sync failed: ${getErrorMessage(error)}`);
         } finally {
             setIsSyncing(false);
         }
@@ -148,8 +147,8 @@ export function Header() {
             const dateStamp = new Date().toISOString().slice(0, 10);
             XLSX.writeFile(workbook, `profitability-data-${dateStamp}.xlsx`);
             toast.success(`Exported ${products.length} data rows`);
-        } catch (error: any) {
-            toast.error(`Export failed: ${error.message || "Unknown error"}`);
+        } catch (error: unknown) {
+            toast.error(`Export failed: ${getErrorMessage(error)}`);
         } finally {
             setIsExporting(false);
         }
@@ -171,10 +170,8 @@ export function Header() {
             const dateStamp = new Date().toISOString().slice(0, 10);
             XLSX.writeFile(workbook, `product-costs-${dateStamp}.xlsx`);
             toast.success(`Exported ${productCosts.length} product costs`);
-        } catch (error: any) {
-            toast.error(
-                `Cost export failed: ${error.message || "Unknown error"}`
-            );
+        } catch (error: unknown) {
+            toast.error(`Cost export failed: ${getErrorMessage(error)}`);
         } finally {
             setIsExporting(false);
         }
@@ -192,7 +189,9 @@ export function Header() {
             const data = await file.arrayBuffer();
             const workbook = XLSX.read(data);
             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+            const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+                firstSheet
+            );
 
             const headers = Object.keys(jsonData[0] || {});
             const skuHeader = headers.find((h) =>
@@ -211,10 +210,22 @@ export function Header() {
             }
 
             const costProducts = jsonData
-                .map((row: any) => ({
-                    sku: String(row[skuHeader] || "").trim(),
-                    cost: parseFloat(row[costHeader]),
-                }))
+                .map((row) => {
+                    const skuValue = row[skuHeader];
+                    const costValue = row[costHeader];
+                    const sku =
+                        typeof skuValue === "string" ||
+                        typeof skuValue === "number"
+                            ? String(skuValue).trim()
+                            : "";
+                    const cost =
+                        typeof costValue === "number"
+                            ? costValue
+                            : typeof costValue === "string"
+                              ? parseFloat(costValue)
+                              : Number.NaN;
+                    return { sku, cost };
+                })
                 .filter((p) => p.sku && !isNaN(p.cost));
 
             if (costProducts.length === 0) {
@@ -227,8 +238,8 @@ export function Header() {
             toast.success(
                 `Import complete! Updated: ${result.updated}, Created: ${result.created}`
             );
-        } catch (error: any) {
-            toast.error(`Import failed: ${error.message || "Unknown error"}`);
+        } catch (error: unknown) {
+            toast.error(`Import failed: ${getErrorMessage(error)}`);
         } finally {
             setIsImporting(false);
             if (costsFileInputRef.current) {
@@ -249,9 +260,9 @@ export function Header() {
             const data = await file.arrayBuffer();
             const workbook = XLSX.read(data);
             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(
+            const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(
                 firstSheet
-            ) as Record<string, unknown>[];
+            );
 
             const rows = parseDataRowsFromSheet(jsonData);
 
@@ -274,10 +285,8 @@ export function Header() {
             toast.success(
                 `Data import complete! Updated: ${updated}, Created: ${created}`
             );
-        } catch (error: any) {
-            toast.error(
-                `Data import failed: ${error.message || "Unknown error"}`
-            );
+        } catch (error: unknown) {
+            toast.error(`Data import failed: ${getErrorMessage(error)}`);
         } finally {
             setIsImporting(false);
             if (dataFileInputRef.current) {
@@ -330,17 +339,14 @@ export function Header() {
                     })()}
                     <div className="relative">
                         <Button
-                            onClick={async () => {
+                            onClick={() => {
                                 if (activeSyncs.length > 0) {
-                                    // Cancel all active syncs
-                                    try {
-                                        await cancelAllActiveSyncs({});
-                                        toast.success("Sync canceled");
-                                    } catch (error: any) {
-                                        toast.error(`Failed to cancel sync: ${error.message || "Unknown error"}`);
-                                    }
+                                    void cancelAllActiveSyncs({})
+                                        .then(() => toast.success("Sync canceled"))
+                                        .catch((error: unknown) =>
+                                            toast.error(`Failed to cancel sync: ${getErrorMessage(error)}`)
+                                        );
                                 } else {
-                                    // Start sync
                                     void handleSyncAll(false);
                                 }
                             }}

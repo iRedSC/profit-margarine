@@ -21,7 +21,7 @@ const SYNC_TO_PRODUCT: Record<SyncMarketplace, ProductMarketplace> = {
 };
 
 export function toSyncMarketplace(
-    marketplace: ProductMarketplace | SyncMarketplace | string
+    marketplace: string
 ): SyncMarketplace {
     const lower = marketplace.toLowerCase();
     if (
@@ -36,7 +36,7 @@ export function toSyncMarketplace(
 }
 
 export function toProductMarketplace(
-    marketplace: ProductMarketplace | SyncMarketplace | string
+    marketplace: string
 ): ProductMarketplace {
     const lower = marketplace.toLowerCase();
     if (lower === "amazon") return "Amazon";

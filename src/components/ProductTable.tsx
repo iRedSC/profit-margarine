@@ -15,7 +15,7 @@ type ProductTableProps = {
   editingCostValue: string;
   setEditingCostValue: (value: string) => void;
   onStartEditing: (id: Id<"marketplaceProducts">, cost: number | undefined) => void;
-  onSaveCost: (id: Id<"marketplaceProducts">, moveToNext: boolean) => Promise<void>;
+  onSaveCost: (id: Id<"marketplaceProducts">) => Promise<void>;
   onCancelEditing: () => void;
   getOrderUrl: (marketplace: string, orderId: string | undefined) => string | null;
   onResyncOrder?: (id: Id<"marketplaceProducts">) => Promise<void>;

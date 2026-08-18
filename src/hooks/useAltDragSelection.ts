@@ -67,7 +67,7 @@ export function useAltDragSelection() {
             });
         };
 
-        const handleMouseUp = async (e: MouseEvent) => {
+        const finishMouseUp = async (e: MouseEvent) => {
             if (!isDraggingRef.current || !startPosRef.current) {
                 return;
             }
@@ -112,6 +112,10 @@ export function useAltDragSelection() {
             // Clear selection box
             setSelectionBox(null);
             startPosRef.current = null;
+        };
+
+        const handleMouseUp = (event: MouseEvent) => {
+            void finishMouseUp(event);
         };
 
         const handleKeyUp = (e: KeyboardEvent) => {
@@ -187,7 +191,7 @@ async function copyTextInBoundingBox(
         const range = document.createRange();
         try {
             range.selectNodeContents(node);
-        } catch (e) {
+        } catch {
             continue;
         }
 
@@ -252,7 +256,7 @@ async function copyTextInBoundingBox(
                         endOffset: actualEnd,
                         range: textRange,
                     });
-                } catch (e) {
+                } catch {
                     // If range setting fails, try selecting the entire node
                     try {
                         const fullRange = document.createRange();
@@ -263,7 +267,7 @@ async function copyTextInBoundingBox(
                             endOffset: node.textContent.length,
                             range: fullRange,
                         });
-                    } catch (e2) {
+                    } catch {
                         // Skip this node if we can't create a range
                     }
                 }
@@ -316,7 +320,7 @@ async function copyTextInBoundingBox(
             try {
                 charRange.setStart(textNode, i);
                 charRange.setEnd(textNode, i + 1);
-            } catch (e) {
+            } catch {
                 continue;
             }
 
@@ -398,7 +402,7 @@ async function copyTextInBoundingBox(
         try {
             await navigator.clipboard.writeText(combinedText);
             return true;
-        } catch (err) {
+        } catch {
             // Fallback for browsers that don't support clipboard API
             // Create a temporary textarea and use execCommand
             const textarea = document.createElement('textarea');
@@ -455,7 +459,7 @@ function getOffsetAtPoint(node: Node, x: number, y: number): number {
                 minDistance = distance;
                 bestOffset = i;
             }
-        } catch (e) {
+        } catch {
             // Skip invalid offsets
             continue;
         }

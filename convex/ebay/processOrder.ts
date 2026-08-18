@@ -10,6 +10,94 @@ import {
     splitOrderCosts,
     toPerUnitBreakdown,
 } from "../lib/orderCosts";
+import { getErrorMessage } from "../marketplaceUtils";
+import {
+    ebayTransactionValidator,
+    isRecord,
+    parseEbayAmount,
+    transactionBelongsToOrder,
+} from "./transactions";
+
+type EbayOrderLineItem = {
+    lineItemId?: unknown;
+    sku?: unknown;
+    title?: unknown;
+    quantity?: unknown;
+    lineItemCost?: unknown;
+};
+
+type EbayFulfillment = {
+    shippedDate?: unknown;
+};
+
+type EbayOrderResponse = {
+    creationDate?: unknown;
+    lineItems?: unknown;
+    pricingSummary?: unknown;
+};
+
+function asOrderLineItems(value: unknown): EbayOrderLineItem[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    const lineItems: EbayOrderLineItem[] = [];
+    for (const item of value) {
+        if (isRecord(item)) {
+            lineItems.push(item);
+        }
+    }
+    return lineItems;
+}
+
+function asFulfillments(value: unknown): EbayFulfillment[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    const fulfillments: EbayFulfillment[] = [];
+    for (const item of value) {
+        if (isRecord(item)) {
+            fulfillments.push(item);
+        }
+    }
+    return fulfillments;
+}
+
+function parseEbayQuantity(value: unknown): number {
+    if (typeof value === "string" || typeof value === "number") {
+        return parseInt(String(value || "1"));
+    }
+    return parseInt("1");
+}
+
+function asDisplayString(value: unknown, fallback = ""): string {
+    if (typeof value === "string") {
+        return value;
+    }
+    if (typeof value === "number") {
+        return String(value);
+    }
+    return fallback;
+}
+
+function asRecordKey(value: unknown): string {
+    if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean" ||
+        typeof value === "bigint" ||
+        value == null
+    ) {
+        return String(value);
+    }
+    return "";
+}
+
+function toDate(value: unknown): Date {
+    if (typeof value === "string" || typeof value === "number") {
+        return new Date(value);
+    }
+    return new Date(NaN);
+}
 
 export const processEbayOrder = internalAction({
     args: {
@@ -17,7 +105,7 @@ export const processEbayOrder = internalAction({
         orderId: v.string(),
         shippingCost: v.number(),
         accessToken: v.string(),
-        allTransactions: v.any(),
+        allTransactions: v.array(ebayTransactionValidator),
         updateExisting: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
@@ -110,12 +198,23 @@ export const processEbayOrder = internalAction({
                 );
             }
 
-            const orderData = await orderResponse.json();
-            const lineItems = orderData.lineItems || [];
+            const orderJson: unknown = await orderResponse.json();
+            const orderData: EbayOrderResponse = isRecord(orderJson)
+                ? orderJson
+                : {};
+            const lineItems = asOrderLineItems(orderData.lineItems);
             
-            const orderTimestamp = new Date(orderData.creationDate || Date.now()).getTime();
+            const orderTimestamp = new Date(
+                (typeof orderData.creationDate === "string" ||
+                typeof orderData.creationDate === "number"
+                    ? orderData.creationDate
+                    : undefined) || Date.now()
+            ).getTime();
             log.orderData = {
-                orderDate: orderData.creationDate,
+                orderDate:
+                    typeof orderData.creationDate === "string"
+                        ? orderData.creationDate
+                        : undefined,
                 orderTimestamp: orderTimestamp,
                 lineItemsCount: lineItems.length,
             };
@@ -134,28 +233,43 @@ export const processEbayOrder = internalAction({
                 });
 
                 if (fulfillmentResponse.ok) {
-                    const fulfillmentData = await fulfillmentResponse.json();
-                    const fulfillments = fulfillmentData.fulfillments || [];
+                    const fulfillmentJson: unknown =
+                        await fulfillmentResponse.json();
+                    const fulfillments = asFulfillments(
+                        isRecord(fulfillmentJson)
+                            ? fulfillmentJson.fulfillments
+                            : undefined
+                    );
                     if (fulfillments.length > 0) {
                         // Get the latest fulfillment's shippedDate
-                        const latestFulfillment = fulfillments.reduce((latest: any, current: any) => {
+                        const latestFulfillment = fulfillments.reduce<
+                            EbayFulfillment | null
+                        >((latest, current) => {
                             if (!latest || !latest.shippedDate) return current;
                             if (!current.shippedDate) return latest;
-                            return new Date(current.shippedDate) > new Date(latest.shippedDate) 
-                                ? current 
+                            return toDate(current.shippedDate) >
+                                toDate(latest.shippedDate)
+                                ? current
                                 : latest;
                         }, null);
                         
                         if (latestFulfillment?.shippedDate) {
-                            fulfillmentTimestamp = new Date(latestFulfillment.shippedDate).getTime();
-                            fulfillmentDate = latestFulfillment.shippedDate;
+                            fulfillmentTimestamp = toDate(
+                                latestFulfillment.shippedDate
+                            ).getTime();
+                            const shippedDate = latestFulfillment.shippedDate;
+                            if (typeof shippedDate === "string") {
+                                fulfillmentDate = shippedDate;
+                            } else if (typeof shippedDate === "number") {
+                                fulfillmentDate = String(shippedDate);
+                            }
                         }
                     }
                 }
-            } catch (error: any) {
+            } catch (error: unknown) {
                 log.errors.push({
                     step: "fetch_fulfillment_date",
-                    error: error.message || String(error),
+                    error: getErrorMessage(error),
                     timestamp: new Date().toISOString(),
                 });
             }
@@ -172,38 +286,19 @@ export const processEbayOrder = internalAction({
 
             // Extract buyer paid shipping from pricingSummary
             // Buyer paid shipping = deliveryCost - deliveryDiscount
-            const deliveryCost = parseFloat(
-                orderData.pricingSummary?.deliveryCost?.value || "0"
-            );
-            const deliveryDiscount = parseFloat(
-                orderData.pricingSummary?.deliveryDiscount?.value || "0"
+            const pricingSummary = isRecord(orderData.pricingSummary)
+                ? orderData.pricingSummary
+                : undefined;
+            const deliveryCost = parseEbayAmount(pricingSummary?.deliveryCost);
+            const deliveryDiscount = parseEbayAmount(
+                pricingSummary?.deliveryDiscount
             );
             const buyerPaidShippingTotal = deliveryCost - deliveryDiscount;
-            
-            // Helper function to check if a transaction belongs to this order
-            const transactionBelongsToOrder = (transaction: any): boolean => {
-                // Check direct orderId field
-                if (transaction.orderId === args.orderId) {
-                    return true;
-                }
-                // Check references array for ORDER_ID reference
-                if (
-                    transaction.references &&
-                    Array.isArray(transaction.references)
-                ) {
-                    return transaction.references.some(
-                        (ref: any) =>
-                            ref.referenceType === "ORDER_ID" &&
-                            ref.referenceId === args.orderId
-                    );
-                }
-                return false;
-            };
             
             // Extract shipping insurance from transactions
             let shippingInsurance = 0;
             for (const transaction of args.allTransactions) {
-                if (transactionBelongsToOrder(transaction)) {
+                if (transactionBelongsToOrder(transaction, args.orderId)) {
                     const transactionType = (transaction.transactionType || "").toUpperCase();
                     
                     // Check for separate insurance transaction
@@ -213,7 +308,7 @@ export const processEbayOrder = internalAction({
                         (transactionType.includes("INSURANCE") && transactionType !== "SHIPPING_LABEL")
                     ) {
                         const amount = Math.abs(
-                            parseFloat(transaction.amount?.value || "0")
+                            parseEbayAmount(transaction.amount)
                         );
                         shippingInsurance += amount;
                     }
@@ -229,7 +324,7 @@ export const processEbayOrder = internalAction({
                                     feeType.includes("COVERAGE")
                                 ) {
                                     const insuranceAmount = Math.abs(
-                                        parseFloat(fee.amount?.value || "0")
+                                        parseEbayAmount(fee.amount)
                                     );
                                     shippingInsurance += insuranceAmount;
                                 }
@@ -239,7 +334,7 @@ export const processEbayOrder = internalAction({
                         // Check for insurance in additional fields (if API provides them)
                         if (transaction.insuranceAmount) {
                             const insuranceAmount = Math.abs(
-                                parseFloat(transaction.insuranceAmount?.value || "0")
+                                parseEbayAmount(transaction.insuranceAmount)
                             );
                             shippingInsurance += insuranceAmount;
                         }
@@ -281,7 +376,7 @@ export const processEbayOrder = internalAction({
 
             // First pass: collect line-item fees from marketplaceFees (most accurate source)
             for (const transaction of args.allTransactions) {
-                if (transactionBelongsToOrder(transaction)) {
+                if (transactionBelongsToOrder(transaction, args.orderId)) {
                     const transactionId =
                         transaction.transactionId ||
                         JSON.stringify(transaction);
@@ -320,7 +415,7 @@ export const processEbayOrder = internalAction({
                                     }
 
                                     const feeAmount = Math.abs(
-                                        parseFloat(fee.amount?.value || "0")
+                                        parseEbayAmount(fee.amount)
                                     );
                                     totalFees += feeAmount;
                                     feeDetails.push({
@@ -362,7 +457,7 @@ export const processEbayOrder = internalAction({
             // Second pass: collect ALL fees from transactions (including order-level fees)
             // This captures fees that might not be in marketplaceFees or are order-level
             for (const transaction of args.allTransactions) {
-                if (transactionBelongsToOrder(transaction)) {
+                if (transactionBelongsToOrder(transaction, args.orderId)) {
                     const transactionId =
                         transaction.transactionId ||
                         JSON.stringify(transaction);
@@ -407,7 +502,7 @@ export const processEbayOrder = internalAction({
                                     continue;
                                 }
                                 const feeAmount = Math.abs(
-                                    parseFloat(fee.amount?.value || "0")
+                                    parseEbayAmount(fee.amount)
                                 );
                                 orderLevelFee += feeAmount;
                             }
@@ -419,9 +514,7 @@ export const processEbayOrder = internalAction({
                         // Check for transaction-level fees
                         if (transaction.totalFeeAmount) {
                             const transactionFee = Math.abs(
-                                parseFloat(
-                                    transaction.totalFeeAmount?.value || "0"
-                                )
+                                parseEbayAmount(transaction.totalFeeAmount)
                             );
                             orderLevelFee += transactionFee;
                         }
@@ -429,7 +522,7 @@ export const processEbayOrder = internalAction({
                         // Check for fees at the transaction level (feeJurisdiction indicates a fee transaction)
                         if (transaction.feeJurisdiction) {
                             const feeAmount = Math.abs(
-                                parseFloat(transaction.amount?.value || "0")
+                                parseEbayAmount(transaction.amount)
                             );
                             orderLevelFee += feeAmount;
                         }
@@ -441,9 +534,7 @@ export const processEbayOrder = internalAction({
                             transactionType === "AD" ||
                             transactionType.includes("FEE")
                         ) {
-                            const amount = parseFloat(
-                                transaction.amount?.value || "0"
-                            );
+                            const amount = parseEbayAmount(transaction.amount);
                             if (amount !== 0) {
                                 orderLevelFee += Math.abs(amount);
                             }
@@ -455,9 +546,7 @@ export const processEbayOrder = internalAction({
                             !transaction.feeJurisdiction &&
                             !transaction.totalFeeAmount
                         ) {
-                            const amount = parseFloat(
-                                transaction.amount?.value || "0"
-                            );
+                            const amount = parseEbayAmount(transaction.amount);
                             // Negative amounts are typically fees/charges
                             if (amount < 0) {
                                 orderLevelFee += Math.abs(amount);
@@ -475,7 +564,7 @@ export const processEbayOrder = internalAction({
                                     continue;
                                 }
                                 const feeAmount = Math.abs(
-                                    parseFloat(fee.amount?.value || "0")
+                                    parseEbayAmount(fee.amount)
                                 );
                                 orderLevelFee += feeAmount;
                             }
@@ -499,8 +588,8 @@ export const processEbayOrder = internalAction({
                 const orderLevelFeePerLineItem =
                     totalOrderLevelFees / lineItems.length;
                 for (const lineItem of lineItems) {
-                    const lineItemId = lineItem.lineItemId;
-                    if (lineItemId) {
+                    const lineItemId = asRecordKey(lineItem.lineItemId);
+                    if (lineItem.lineItemId) {
                         feesByLineItemId[lineItemId] =
                             (feesByLineItemId[lineItemId] || 0) +
                             orderLevelFeePerLineItem;
@@ -521,7 +610,7 @@ export const processEbayOrder = internalAction({
             let totalFees = 0;
             const feesByLineItem: Record<string, number> = {};
             for (const lineItem of lineItems) {
-                const lineItemId = lineItem.lineItemId;
+                const lineItemId = asRecordKey(lineItem.lineItemId);
                 const fees = feesByLineItemId[lineItemId] || 0;
                 feesByLineItem[lineItemId] = fees;
                 totalFees += fees;
@@ -568,8 +657,8 @@ export const processEbayOrder = internalAction({
             }
 
             // Calculate total quantity across all line items
-            const totalQuantity = lineItems.reduce((sum: number, item: any) => {
-                return sum + parseInt(item.quantity || "1");
+            const totalQuantity = lineItems.reduce((sum, item) => {
+                return sum + parseEbayQuantity(item.quantity);
             }, 0);
             log.summary.totalQuantity = totalQuantity;
 
@@ -606,12 +695,15 @@ export const processEbayOrder = internalAction({
             }> = [];
             
             for (const lineItem of lineItems) {
-                const sku = lineItem.sku || lineItem.lineItemId;
-                const title = lineItem.title || "Unknown Item";
-                const lineItemId = lineItem.lineItemId;
-                const price = parseFloat(lineItem.lineItemCost?.value || "0");
+                const lineItemId = asRecordKey(lineItem.lineItemId);
+                const sku =
+                    asDisplayString(lineItem.sku) ||
+                    asDisplayString(lineItem.lineItemId);
+                const title =
+                    asDisplayString(lineItem.title) || "Unknown Item";
+                const price = parseEbayAmount(lineItem.lineItemCost);
                 let fees = feesByLineItemId[lineItemId] || 0;
-                const quantity = parseInt(lineItem.quantity || "1");
+                const quantity = parseEbayQuantity(lineItem.quantity);
 
                 // Divide by quantity to get per-unit values
                 const pricePerUnit = price / quantity;
@@ -710,10 +802,10 @@ export const processEbayOrder = internalAction({
             log.items = logItems;
             console.error(JSON.stringify(log));
             return { success: true, itemsProcessed: lineItems.length };
-        } catch (error: any) {
+        } catch (error: unknown) {
             log.errors.push({
                 step: "process_order",
-                error: error.message || String(error),
+                error: getErrorMessage(error),
                 timestamp: new Date().toISOString(),
             });
             console.error(JSON.stringify(log));

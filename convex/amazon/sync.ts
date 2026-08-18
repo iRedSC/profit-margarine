@@ -9,14 +9,16 @@ import {
     handleSyncError,
     processWithProgress,
     validateSyncActive,
+    finishSync,
+    isInactiveSyncError,
 } from "../marketplaceUtils";
-import { finishSync } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
 import {
     AMAZON_BACKFILL_LOOKBACK_MS,
     AMAZON_PENDING_BACKFILL_RETRY_MS,
     fetchAmazonOrders,
     getSellingPartnerAPI,
+    type AmazonSpApiQuery,
 } from "./client";
 
 type SyncResult =
@@ -140,7 +142,7 @@ export const retryPendingAmazonImports = internalAction({
             );
 
             return { success: true, ordersProcessed: pendingOrderIds.length };
-        } catch (error: any) {
+        } catch (error: unknown) {
             await handleSyncError(ctx, args.syncId, error, "amazon");
             throw error;
         }
@@ -225,7 +227,7 @@ export const syncAmazonOrders = internalAction({
                     );
                 }
 
-                const query: Record<string, any> = {
+                const query: AmazonSpApiQuery = {
                     MarketplaceIds: ["ATVPDKIKX0DER"], // US marketplace
                     LastUpdatedAfter: batch.start.toISOString(),
                     OrderStatuses: ["Shipped"],
@@ -260,16 +262,23 @@ export const syncAmazonOrders = internalAction({
             await finishSync(ctx, args.syncId, "amazon");
 
             return { success: true, ordersProcessed: allOrders.length };
-        } catch (error: any) {
-            if (
-                error.message === "Sync was canceled" ||
-                error.message === "Sync does not exist" ||
-                error.message?.includes("Sync is not active")
-            ) {
+        } catch (error: unknown) {
+            if (isInactiveSyncError(error)) {
                 return { success: false, canceled: true };
             }
-            console.error("Error details:", error.message);
-            if (error.response) {
+            const details =
+                typeof error === "object" &&
+                error !== null &&
+                "message" in error
+                    ? error.message
+                    : undefined;
+            console.error("Error details:", details);
+            if (
+                typeof error === "object" &&
+                error !== null &&
+                "response" in error &&
+                error.response
+            ) {
                 console.error(
                     "API Response:",
                     JSON.stringify(error.response, null, 2)

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, internalQuery } from "../_generated/server";
+import { query, internalQuery, type QueryCtx } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Doc, Id } from "../_generated/dataModel";
 import { AMAZON_ESTIMATED_FEE_LABEL } from "../lib/orderCosts";
@@ -40,7 +40,7 @@ function mapMarketplaceProductRow(
 }
 
 async function collectIncompleteAmazonOrderContext(
-    ctx: { db: any },
+    ctx: QueryCtx,
     userId: Id<"users">
 ): Promise<{
     pendingImports: PendingImportDoc[];
@@ -48,7 +48,7 @@ async function collectIncompleteAmazonOrderContext(
 }> {
     const pendingImports = await ctx.db
         .query("pendingMarketplaceImports")
-        .withIndex("by_user_marketplace_status", (q: any) =>
+        .withIndex("by_user_marketplace_status", (q) =>
             q
                 .eq("userId", userId)
                 .eq("marketplace", "Amazon")
@@ -58,11 +58,11 @@ async function collectIncompleteAmazonOrderContext(
 
     const allMarketplaceProducts = await ctx.db
         .query("marketplaceProducts")
-        .withIndex("by_user", (q: any) => q.eq("userId", userId))
+        .withIndex("by_user", (q) => q.eq("userId", userId))
         .collect();
 
     const incompleteAmazonProducts = allMarketplaceProducts.filter(
-        (product: MarketplaceProductDoc) =>
+        (product) =>
             product.marketplace === "Amazon" &&
             !product.fulfillmentDate &&
             !!resolveOrderId(product)

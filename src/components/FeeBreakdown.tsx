@@ -10,10 +10,7 @@ export function FeeBreakdown({
     fees_breakdown,
     totalFees,
 }: FeeBreakdownProps) {
-    const { fees, hasEstimatedFees } = processFeeBreakdown(
-        fees_breakdown,
-        totalFees
-    );
+    const { fees, hasEstimatedFees } = processFeeBreakdown(fees_breakdown);
 
     if (fees.length === 0) {
         return <span>${totalFees.toFixed(2)}</span>;

@@ -1,4 +1,8 @@
-import { calculateMargin, calculateProfit } from "./productUtils";
+import {
+  calculateMargin,
+  calculateProfit,
+  getNetShipping,
+} from "./productUtils";
 import { Product } from "../types/product";
 
 export type ChartGranularity = "hour" | "day" | "week";
@@ -44,12 +48,6 @@ export type SkuRanking = {
   totalLoss: number;
   orderCount: number;
 };
-
-function getNetShipping(product: Product): number {
-  return product.buyerPaidShipping !== undefined
-    ? product.shipping - product.buyerPaidShipping
-    : product.shipping;
-}
 
 /** Saturday start-of-week, matching dateRangeUtils */
 function getWeekStart(date: Date): Date {

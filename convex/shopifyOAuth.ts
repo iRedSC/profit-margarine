@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { parseOAuthTokenJson, requireTokenString } from "./lib/oauthHttp";
 
 export const exchangeCodeForToken = internalAction({
     args: {
@@ -32,14 +33,12 @@ export const exchangeCodeForToken = internalAction({
             }),
         });
 
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Failed to exchange code for token: ${error}`);
-        }
-
-        const data = await response.json();
-        const accessToken = data.access_token;
-        const scope = data.scope;
+        const data = await parseOAuthTokenJson(
+            response,
+            "Failed to exchange code for token"
+        );
+        const accessToken = requireTokenString(data, "access_token");
+        const scope = requireTokenString(data, "scope");
 
         await ctx.runMutation(internal.shopifyMutations.storeShopifyConnection, {
             shop: args.shop,
