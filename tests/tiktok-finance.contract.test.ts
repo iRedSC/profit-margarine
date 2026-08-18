@@ -13,6 +13,7 @@ import {
   unwrapTokenPayload,
 } from "../convex/tiktok/token";
 import { signTiktokRequest } from "../convex/tiktok/sign";
+import { tiktokSellerAuthorizeUrl } from "../convex/tiktok/region";
 import { isEstimatedFee } from "../src/lib/feeUtils";
 
 const statementPayload = {
@@ -199,5 +200,35 @@ describe("TikTok request signing", () => {
         body,
       }),
     ).toBe(sign);
+  });
+});
+
+describe("TikTok US authorize host", () => {
+  it("sends US shops to services.us.tiktokshop.com, not the global auth host", () => {
+    const url = tiktokSellerAuthorizeUrl({
+      appKey: "app-key",
+      serviceId: "service-id",
+      state: "abc",
+      redirectUri: "https://example.convex.site/tiktok/callback",
+      scopes: "seller.order.info",
+      apiBase: "https://open-api.us.tiktokglobalshop.com",
+    });
+
+    expect(url).toContain("https://services.us.tiktokshop.com/open/authorize");
+    expect(url).toContain("service_id=service-id");
+    expect(url).not.toContain("auth.tiktok-shops.com");
+  });
+
+  it("keeps the global v2 authorize URL when the API base is not US", () => {
+    const url = tiktokSellerAuthorizeUrl({
+      appKey: "app-key",
+      state: "abc",
+      redirectUri: "https://example.convex.site/tiktok/callback",
+      scopes: "seller.order.info",
+      apiBase: "https://open-api.tiktokglobalshop.com",
+    });
+
+    expect(url).toContain("https://auth.tiktok-shops.com/api/v2/authorize/");
+    expect(url).toContain("app_key=app-key");
   });
 });

@@ -3,6 +3,7 @@ import {
     createOAuthInstallHandler,
     jsonError,
 } from "./lib/oauthHttp";
+import { tiktokSellerAuthorizeUrl } from "./tiktok/region";
 
 export const tiktokInstall = createOAuthInstallHandler({
     missingConfigMessage: "TikTok Shop OAuth not configured",
@@ -18,16 +19,20 @@ export const tiktokInstall = createOAuthInstallHandler({
         }
 
         const redirectUri = `${siteUrl}/tiktok/callback`;
-
         const scopes = [
             "seller.authorization.info",
             "seller.order.info",
             "seller.finance.info",
         ].join(" ");
-
         const state = crypto.randomUUID();
 
-        return `https://auth.tiktok-shops.com/api/v2/authorize/?app_key=${encodeURIComponent(clientKey)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`;
+        return tiktokSellerAuthorizeUrl({
+            appKey: clientKey,
+            serviceId: process.env.TIKTOK_SERVICE_ID,
+            state,
+            redirectUri,
+            scopes,
+        });
     },
 });
 

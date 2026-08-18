@@ -51,6 +51,7 @@ import type * as tiktok from "../tiktok.js";
 import type * as tiktok_client from "../tiktok/client.js";
 import type * as tiktok_finance from "../tiktok/finance.js";
 import type * as tiktok_processOrder from "../tiktok/processOrder.js";
+import type * as tiktok_region from "../tiktok/region.js";
 import type * as tiktok_sign from "../tiktok/sign.js";
 import type * as tiktok_sync from "../tiktok/sync.js";
 import type * as tiktok_token from "../tiktok/token.js";
@@ -108,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   "tiktok/client": typeof tiktok_client;
   "tiktok/finance": typeof tiktok_finance;
   "tiktok/processOrder": typeof tiktok_processOrder;
+  "tiktok/region": typeof tiktok_region;
   "tiktok/sign": typeof tiktok_sign;
   "tiktok/sync": typeof tiktok_sync;
   "tiktok/token": typeof tiktok_token;
