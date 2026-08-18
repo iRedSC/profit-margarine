@@ -4,7 +4,7 @@ const US_API_HOSTS = new Set([
 ]);
 
 export const US_AUTHORIZE_URL =
-    "https://services.us.tiktokshop.com/open/authorize";
+    "https://services.tiktokshops.us/open/authorize";
 export const GLOBAL_AUTHORIZE_URL =
     "https://auth.tiktok-shops.com/api/v2/authorize/";
 
@@ -26,7 +26,7 @@ export function isUsTiktokApiBase(
 }
 
 /**
- * US Partner Center apps must authorize on services.us.tiktokshop.com with
+ * US Partner Center apps must authorize on services.tiktokshops.us with
  * Service ID, which is not the App Key.
  */
 export function tiktokSellerAuthorizeUrl(args: {

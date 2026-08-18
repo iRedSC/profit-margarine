@@ -204,7 +204,7 @@ describe("TikTok request signing", () => {
 });
 
 describe("TikTok US authorize host", () => {
-  it("sends US shops to services.us.tiktokshop.com, not the global auth host", () => {
+  it("sends US shops to services.tiktokshops.us, not the global auth host", () => {
     const url = tiktokSellerAuthorizeUrl({
       appKey: "app-key",
       serviceId: "service-id",
@@ -214,7 +214,7 @@ describe("TikTok US authorize host", () => {
       apiBase: "https://open-api.us.tiktokglobalshop.com",
     });
 
-    expect(url).toContain("https://services.us.tiktokshop.com/open/authorize");
+    expect(url).toContain("https://services.tiktokshops.us/open/authorize");
     expect(url).toContain("service_id=service-id");
     expect(url).not.toContain("auth.tiktok-shops.com");
   });
