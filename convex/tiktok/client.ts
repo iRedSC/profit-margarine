@@ -95,11 +95,12 @@ async function tiktokFetch(args: {
 
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
-        const detail = isRecord(payload) && typeof payload.message === "string"
-            ? payload.message
-            : "";
+        const detail =
+            isRecord(payload) && typeof payload.message === "string"
+                ? payload.message
+                : "";
         throw new Error(
-            `TikTok Shop API ${args.path} failed: ${response.status}${detail ? ` ${detail}` : ""}`
+            `TikTok Shop API ${args.path} failed: ${response.status} at ${url.origin}${args.path}${detail ? ` ${detail}` : ""}`
         );
     }
     return extractData(payload, `TikTok Shop API ${args.path}`);
