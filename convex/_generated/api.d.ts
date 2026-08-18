@@ -42,7 +42,7 @@ import type * as router from "../router.js";
 import type * as shopify from "../shopify.js";
 import type * as shopify_graphql from "../shopify/graphql.js";
 import type * as shopify_orderProcessing from "../shopify/orderProcessing.js";
-import type * as shopify_shipping from "../shopify/shipping.js";
+import type * as shopify_shopifyql from "../shopify/shopifyql.js";
 import type * as shopify_sync from "../shopify/sync.js";
 import type * as shopifyMutations from "../shopifyMutations.js";
 import type * as shopifyOAuth from "../shopifyOAuth.js";
@@ -100,7 +100,7 @@ declare const fullApi: ApiFromModules<{
   shopify: typeof shopify;
   "shopify/graphql": typeof shopify_graphql;
   "shopify/orderProcessing": typeof shopify_orderProcessing;
-  "shopify/shipping": typeof shopify_shipping;
+  "shopify/shopifyql": typeof shopify_shopifyql;
   "shopify/sync": typeof shopify_sync;
   shopifyMutations: typeof shopifyMutations;
   shopifyOAuth: typeof shopifyOAuth;

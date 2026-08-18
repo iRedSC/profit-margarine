@@ -46,6 +46,7 @@ cp .env.local.example .env.local
 3. Add the following scopes:
    - `read_orders`
    - `read_products`
+   - `read_reports` (ShopifyQL requires Level 2 protected customer data access; custom apps may receive this automatically)
 4. Install the app on your Shopify store
 5. Copy the API key and access token to your `.env.local`
 

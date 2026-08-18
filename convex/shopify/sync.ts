@@ -13,7 +13,10 @@ import {
     isInactiveSyncError,
 } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
-import { fetchShopifyGraphQL } from "./graphql";
+import {
+    fetchShopifyOrderFinancials,
+    type ShopifyOrderFinancials,
+} from "./shopifyql";
 
 type SyncResult =
     | { success: boolean; ordersProcessed: number }
@@ -77,49 +80,17 @@ export const syncShopifyOrders = internalAction({
                 undefined
             );
 
-            // Query to get order events
-            const eventsQuery = `
-        query OrderEvents($first: Int!, $after: String, $query: String!) {
-          events(first: $first, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            edges {
-              node {
-                id
-                createdAt
-                message
-                ... on BasicEvent {
-                  action
-                  subjectType
-                  subject {
-                    ... on Order {
-                      id
-                      name
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      `;
+            const financialsByOrder = new Map<
+                string,
+                ShopifyOrderFinancials
+            >();
 
-            const allLabelEvents: Array<{
-                orderGid: string;
-                cost: number;
-                message: string;
-                createdAt: string;
-            }> = [];
-
-            // Fetch events for each batch
+            // Fetch structured order financials for each batch.
             for (
                 let batchIndex = 0;
                 batchIndex < batches.length;
                 batchIndex++
             ) {
-                // Validate sync exists and is active before processing each batch
                 await validateSyncActive(ctx, args.syncId);
 
                 const batch = batches[batchIndex];
@@ -139,60 +110,17 @@ export const syncShopifyOrders = internalAction({
                     );
                 }
 
-                const queryString = useBatching
-                    ? `subject_type:Order created_at:>=${batchStartDate} created_at:<=${batchEndDate}`
-                    : `subject_type:Order created_at:>=${batchStartDate}`;
-                let cursor: string | null = null;
-                let hasNextPage = true;
-                let page = 0;
-                const maxPages = 20; // Safety limit
-
-                // Fetch all label events for this batch
-                while (hasNextPage && page < maxPages) {
-                    const data = await fetchShopifyGraphQL(
-                        eventsQuery,
-                        {
-                            first: 100,
-                            after: cursor,
-                            query: queryString,
-                        },
-                        shop,
-                        accessToken
+                const financials = await fetchShopifyOrderFinancials({
+                    shop,
+                    accessToken,
+                    startDate: batchStartDate,
+                    endDate: batchEndDate,
+                });
+                for (const orderFinancials of financials) {
+                    financialsByOrder.set(
+                        orderFinancials.orderId,
+                        orderFinancials
                     );
-
-                    const events = data.events;
-                    cursor = events.pageInfo.endCursor;
-                    hasNextPage = events.pageInfo.hasNextPage;
-                    page++;
-
-                    for (const edge of events.edges) {
-                        const event = edge.node;
-                        const message = event.message || "";
-                        const messageLower = message.toLowerCase();
-
-                        // Look for shipping label purchase events
-                        // Skip if this is a cancellation/void event
-                        if (
-                            messageLower.includes("shipping label") &&
-                            !messageLower.includes("void") &&
-                            !messageLower.includes("cancel") &&
-                            !messageLower.includes("cancelled")
-                        ) {
-                            const match = message.match(
-                                /\$([0-9]+(?:\.[0-9]{2})?)/
-                            );
-                            const cost = match ? parseFloat(match[1]) : null;
-
-                            if (cost != null && event.subject?.id) {
-                                allLabelEvents.push({
-                                    orderGid: event.subject.id,
-                                    cost,
-                                    message,
-                                    createdAt: event.createdAt,
-                                });
-                            }
-                        }
-                    }
                 }
 
                 // Small delay between batches to avoid rate limiting
@@ -201,37 +129,10 @@ export const syncShopifyOrders = internalAction({
                 }
             }
 
-            // Group shipping label events by order ID and sum costs
-            // This handles cases where multiple products ship separately with separate labels
-            const ordersByGid: Record<
-                string,
-                { totalCost: number; earliestCreatedAt: string }
-            > = {};
-
-            for (const labelEvent of allLabelEvents) {
-                if (!ordersByGid[labelEvent.orderGid]) {
-                    ordersByGid[labelEvent.orderGid] = {
-                        totalCost: 0,
-                        earliestCreatedAt: labelEvent.createdAt,
-                    };
-                }
-                ordersByGid[labelEvent.orderGid].totalCost += labelEvent.cost;
-                // Use earliest createdAt for cancellation checking
-                if (
-                    new Date(labelEvent.createdAt) <
-                    new Date(ordersByGid[labelEvent.orderGid].earliestCreatedAt)
-                ) {
-                    ordersByGid[labelEvent.orderGid].earliestCreatedAt =
-                        labelEvent.createdAt;
-                }
-            }
-
-            // Convert to array for processing
-            const uniqueOrders = Object.entries(ordersByGid).map(
-                ([orderGid, data]) => ({
-                    orderGid,
-                    shippingLabelCost: data.totalCost,
-                    labelPurchaseTime: data.earliestCreatedAt,
+            const uniqueOrders = [...financialsByOrder.values()].map(
+                (financials) => ({
+                    orderGid: `gid://shopify/Order/${financials.orderId}`,
+                    financials,
                 })
             );
 
@@ -245,11 +146,10 @@ export const syncShopifyOrders = internalAction({
                         {
                             userId: args.userId,
                             orderGid: orderData.orderGid,
-                            shippingLabelCost: orderData.shippingLabelCost,
+                            financials: orderData.financials,
                             shop,
                             accessToken,
                             updateExisting: args.updateExisting ?? false,
-                            labelPurchaseTime: orderData.labelPurchaseTime,
                         }
                     );
                 },

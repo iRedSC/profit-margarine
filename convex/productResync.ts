@@ -78,19 +78,25 @@ async function processOrderByMarketplace(
                 ? args.orderId
                 : `gid://shopify/Order/${args.orderId}`;
 
-        const shippingData = await ctx.runAction(
-            internal.shopify.getShippingCostForOrder,
+        const financials = await ctx.runAction(
+            internal.shopify.getShopifyOrderFinancials,
             {
-                orderGid,
+                orderIds: [orderGid],
                 shop: connection.shop,
                 accessToken: connection.accessToken,
             }
         );
+        const orderFinancials = financials[0];
+        if (!orderFinancials) {
+            throw new Error(
+                `ShopifyQL returned no financial data for order ${args.orderId}`
+            );
+        }
 
         return await ctx.runAction(internal.shopify.processShopifyOrder, {
             userId: args.userId,
             orderGid,
-            shippingLabelCost: shippingData.shipping,
+            financials: orderFinancials,
             shop: connection.shop,
             accessToken: connection.accessToken,
             updateExisting: true,

@@ -19,33 +19,10 @@ export type ShopifyFulfillment = {
     status?: string;
 };
 
-export type ShopifyEvent = {
-    createdAt: string;
-    message?: string;
-    subject?: {
-        id?: string;
-    } | null;
-};
-
-export type ShopifyEventsConnection = {
-    pageInfo: {
-        hasNextPage: boolean;
-        endCursor: string | null;
-    };
-    edges: Array<{
-        node: ShopifyEvent;
-    }>;
-};
-
 export type ShopifyOrder = {
     name?: string;
     createdAt: string;
     cancelledAt?: string | null;
-    shippingLine?: {
-        discountedPriceSet?: {
-            shopMoney?: ShopifyMoney;
-        };
-    } | null;
     channelInformation?: {
         channelDefinition?: {
             channelName?: string;
@@ -57,16 +34,10 @@ export type ShopifyOrder = {
             node: ShopifyLineItem;
         }>;
     };
-    events?: {
-        edges?: Array<{
-            node: ShopifyEvent;
-        }>;
-    };
 };
 
 export type ShopifyGraphQLData = {
     order?: ShopifyOrder | null;
-    events: ShopifyEventsConnection;
 };
 
 export type ShopifyGraphQLVariables = Record<string, unknown>;
@@ -79,13 +50,13 @@ type ShopifyGraphQLResponse<TData> = {
 /**
  * Execute a GraphQL query against Shopify API
  */
-export async function fetchShopifyGraphQL(
+export async function fetchShopifyGraphQL<TData = ShopifyGraphQLData>(
     query: string,
     variables: ShopifyGraphQLVariables,
     shop: string,
     accessToken: string
-): Promise<ShopifyGraphQLData> {
-    const endpoint = `https://${shop}/admin/api/2024-10/graphql.json`;
+): Promise<TData> {
+    const endpoint = `https://${shop}/admin/api/2026-01/graphql.json`;
 
     const res = await fetch(endpoint, {
         method: "POST",
@@ -101,7 +72,7 @@ export async function fetchShopifyGraphQL(
         throw new Error(`Shopify GraphQL error: ${res.status} ${text}`);
     }
 
-    const json = (await res.json()) as ShopifyGraphQLResponse<ShopifyGraphQLData>;
+    const json = (await res.json()) as ShopifyGraphQLResponse<TData>;
 
     if (json.errors) {
         throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);

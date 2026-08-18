@@ -8,18 +8,17 @@ import {
     fetchShopifyGraphQL,
     type ShopifyFulfillment,
 } from "./graphql";
-import { isShippingLabelCancelled } from "./shipping";
 import { splitOrderCosts } from "../lib/orderCosts";
+import { shopifyOrderFinancialsValidator } from "./shopifyql";
 
 export const processShopifyOrder = internalAction({
     args: {
         userId: v.id("users"),
         orderGid: v.string(),
-        shippingLabelCost: v.number(),
+        financials: shopifyOrderFinancialsValidator,
         shop: v.string(),
         accessToken: v.string(),
         updateExisting: v.optional(v.boolean()),
-        labelPurchaseTime: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const log: {
@@ -40,13 +39,11 @@ export const processShopifyOrder = internalAction({
                 lineItemsCount?: number;
             };
             shippingData?: {
-                rawShippingLabelCost: number;
-                shippingInsurance: number;
-                totalShippingWithInsurance: number;
+                storeShippingCost: number;
+                shippingLabelAdjustment: number;
                 buyerPaidShipping: number;
                 shippingPerUnit: number;
                 buyerPaidShippingPerUnit: number;
-                wasCancelled?: boolean;
             };
             fulfillmentData?: {
                 fulfillmentTimestamp?: number;
@@ -105,19 +102,12 @@ export const processShopifyOrder = internalAction({
             name
             createdAt
             cancelledAt
-            shippingLine {
-              discountedPriceSet {
-                shopMoney {
-                  amount
-                }
-              }
-            }
             channelInformation {
               channelDefinition {
                 channelName
               }
             }
-            fulfillments(first: 10) {
+            fulfillments(first: 250) {
               id
               createdAt
               status
@@ -126,7 +116,7 @@ export const processShopifyOrder = internalAction({
                 company
               }
             }
-            lineItems(first: 100) {
+            lineItems(first: 250) {
               edges {
                 node {
                   id
@@ -195,26 +185,6 @@ export const processShopifyOrder = internalAction({
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            // Check if shipping label was cancelled/voided after purchase
-            let labelCancelled = false;
-            if (args.labelPurchaseTime && args.shippingLabelCost > 0) {
-                labelCancelled = await isShippingLabelCancelled(
-                    args.orderGid,
-                    args.labelPurchaseTime,
-                    args.shop,
-                    args.accessToken
-                );
-                if (labelCancelled) {
-                    log.skipped = true;
-                    log.skippedReason = "Shipping label was cancelled/voided";
-                    if (log.shippingData) {
-                        log.shippingData.wasCancelled = true;
-                    }
-                    console.error(JSON.stringify(log));
-                    return { success: true, itemsProcessed: 0, skipped: true };
-                }
-            }
-
             // Extract fulfillment date from fulfillments and check for cancelled fulfillments
             let fulfillmentTimestamp: number | undefined = undefined;
             let fulfillmentDate: string | undefined = undefined;
@@ -233,13 +203,10 @@ export const processShopifyOrder = internalAction({
                 // If we have shipping label cost but all fulfillments are cancelled, skip this order
                 if (
                     activeFulfillments.length === 0 &&
-                    args.shippingLabelCost > 0
+                    args.financials.storeShippingCost > 0
                 ) {
                     log.skipped = true;
                     log.skippedReason = "All fulfillments are cancelled";
-                    if (log.shippingData) {
-                        log.shippingData.wasCancelled = true;
-                    }
                     console.error(JSON.stringify(log));
                     return { success: true, itemsProcessed: 0, skipped: true };
                 }
@@ -297,99 +264,21 @@ export const processShopifyOrder = internalAction({
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            const lineItems = order.lineItems.edges.map((e) => e.node);
+            const lineItems = order.lineItems.edges
+                .map((edge) => edge.node)
+                .filter((item) => {
+                    const price = Number(
+                        item.originalUnitPriceSet?.shopMoney?.amount ?? 0
+                    );
+                    return item.quantity > 0 && Number.isFinite(price) && price !== 0;
+                });
             if (log.orderData) {
                 log.orderData.lineItemsCount = lineItems.length;
             }
             log.summary.totalItems = lineItems.length;
 
-            // Extract buyer paid shipping from shippingLine
-            const buyerPaidShippingTotal = parseFloat(
-                order.shippingLine?.discountedPriceSet?.shopMoney?.amount || "0"
-            );
-
-            // Extract shipping insurance from shipping label purchase events
-            // Insurance information is in the same message as the shipping label purchase
-            let shippingInsurance = 0;
-            try {
-                const orderEventsQuery = `
-                    query OrderEvents($orderId: ID!, $first: Int!) {
-                      order(id: $orderId) {
-                        id
-                        events(first: $first, sortKey: CREATED_AT, reverse: false) {
-                          edges {
-                            node {
-                              id
-                              createdAt
-                              message
-                              ... on BasicEvent {
-                                action
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                `;
-
-                const eventsData = await fetchShopifyGraphQL(
-                    orderEventsQuery,
-                    { orderId: args.orderGid, first: 250 },
-                    args.shop,
-                    args.accessToken
-                );
-
-                if (eventsData.order && eventsData.order.events) {
-                    const events = eventsData.order.events.edges || [];
-                    for (const edge of events) {
-                        const event = edge.node;
-                        const message = (event.message || "").toLowerCase();
-                        const originalMessage = event.message || "";
-
-                        // Look for shipping label purchase events that mention insurance
-                        if (
-                            message.includes("shipping label") &&
-                            (message.includes("insurance") ||
-                                message.includes("shipsurance")) &&
-                            !message.includes("void") &&
-                            !message.includes("cancel") &&
-                            !message.includes("cancelled")
-                        ) {
-                            // Check if insurance is included (no separate cost)
-                            // Pattern: "You purchased a $X.XX shipping label and the included shipping insurance premium."
-                            if (message.includes("included shipping insurance")) {
-                                // Insurance is included in the shipping cost, so insurance = 0
-                                shippingInsurance += 0;
-                            } else {
-                                // Check for separate insurance premium
-                                // Pattern: "You purchased a shipping label for $X.XX with a $Y.YY shipping insurance premium."
-                                const insuranceMatch = originalMessage.match(
-                                    /with a \$([0-9]+(?:\.[0-9]{2})?)\s+shipping insurance premium/i
-                                );
-                                if (insuranceMatch) {
-                                    const insuranceCost = parseFloat(
-                                        insuranceMatch[1]
-                                    );
-                                    if (!isNaN(insuranceCost)) {
-                                        shippingInsurance += insuranceCost;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (error) {
-                // If we can't fetch events, insurance will remain 0
-                // This is not a critical error - we'll just proceed without insurance data
-                console.error(
-                    `Error fetching insurance for order ${args.orderGid}:`,
-                    error
-                );
-            }
-
-            // Calculate total shipping including insurance
-            const totalShippingWithInsurance =
-                args.shippingLabelCost + shippingInsurance;
+            const buyerPaidShippingTotal =
+                args.financials.customerShippingCharges;
 
             // Calculate total quantity across all line items
             const totalQuantity = lineItems.reduce(
@@ -398,8 +287,7 @@ export const processShopifyOrder = internalAction({
             );
             log.summary.totalQuantity = totalQuantity;
 
-            // Use total shipping including insurance for calculations
-            const totalOrderShipping = totalShippingWithInsurance;
+            const totalOrderShipping = args.financials.storeShippingCost;
 
             // Split shipping cost evenly across all units
             const { shippingPerUnit, buyerPaidPerUnit: buyerPaidShippingPerUnit } =
@@ -412,14 +300,37 @@ export const processShopifyOrder = internalAction({
                     : { shippingPerUnit: 0, buyerPaidPerUnit: 0 };
 
             log.shippingData = {
-                rawShippingLabelCost: args.shippingLabelCost,
-                shippingInsurance: shippingInsurance,
-                totalShippingWithInsurance: totalShippingWithInsurance,
+                storeShippingCost: args.financials.storeShippingCost,
+                shippingLabelAdjustment:
+                    args.financials.shippingLabelAdjustment,
                 buyerPaidShipping: buyerPaidShippingTotal,
                 shippingPerUnit: shippingPerUnit,
                 buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
-                wasCancelled: labelCancelled,
             };
+
+            const totalOrderFees =
+                args.financials.shopifyPaymentsProcessingFees +
+                args.financials.foreignExchangeFees +
+                args.financials.managedMarketsFees;
+            const feesPerUnit =
+                totalQuantity > 0 ? totalOrderFees / totalQuantity : 0;
+            const feeBreakdown = [
+                [
+                    "Shopify Payments Processing Fees",
+                    args.financials.shopifyPaymentsProcessingFees,
+                ],
+                ["Foreign Exchange Fees", args.financials.foreignExchangeFees],
+                ["Managed Markets Fees", args.financials.managedMarketsFees],
+            ] satisfies Array<[string, number]>;
+            const feesBreakdownPerUnit = feeBreakdown
+                .filter(([, amount]) => amount !== 0)
+                .map(
+                    ([label, amount]) =>
+                        [label, amount / Math.max(1, totalQuantity)] as [
+                            string,
+                            number,
+                        ]
+                );
 
             const logItems: Array<{
                 lineItemId: string;
@@ -439,32 +350,10 @@ export const processShopifyOrder = internalAction({
                 const pricePerUnit = parseFloat(
                     item.originalUnitPriceSet?.shopMoney?.amount || "0"
                 );
-                if (pricePerUnit === 0) {
-                    continue;
-                }
                 const quantity = item.quantity;
                 const sku = item.sku || item.id;
                 const name = item.title || "Unknown Product";
                 const lineItemId = item.id;
-
-                // Calculate Shopify fees (2.9% + $0.30 per transaction, split across items)
-                const transactionFeePercentage = pricePerUnit * 0.029;
-                const transactionFeeFixed = 0.3;
-                const totalTransactionFee =
-                    transactionFeePercentage + transactionFeeFixed;
-                const transactionFeePerUnit = totalTransactionFee / quantity;
-
-                // Create fee breakdown per unit
-                const feesBreakdownPerUnit: Array<[string, number]> = [
-                    [
-                        "Transaction Fee (2.9%)",
-                        transactionFeePercentage / quantity,
-                    ],
-                    [
-                        "Transaction Fee (Fixed $0.30)",
-                        transactionFeeFixed / quantity,
-                    ],
-                ];
 
                 // Store item data in log before processing
                 logItems.push({
@@ -474,30 +363,32 @@ export const processShopifyOrder = internalAction({
                     quantity: quantity,
                     price: pricePerUnit * quantity,
                     pricePerUnit: pricePerUnit,
-                    fees: totalTransactionFee,
-                    feesPerUnit: transactionFeePerUnit,
+                    fees: feesPerUnit * quantity,
+                    feesPerUnit,
                     feesBreakdown: feesBreakdownPerUnit,
                     shippingPerUnit: shippingPerUnit,
                     buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
                 });
 
-                // Create shipping breakdown (base shipping + insurance)
+                // Store the adjustment separately without double-counting it.
                 const shippingBreakdown: Array<[string, number]> = [];
+                const adjustmentPerUnit =
+                    args.financials.shippingLabelAdjustment /
+                    Math.max(1, totalQuantity);
                 const baseShippingPerUnit =
-                    args.shippingLabelCost / totalQuantity;
-                const insurancePerUnit = shippingInsurance / totalQuantity;
+                    shippingPerUnit - adjustmentPerUnit;
 
-                if (baseShippingPerUnit > 0 || insurancePerUnit > 0) {
-                    if (baseShippingPerUnit > 0) {
+                if (baseShippingPerUnit !== 0 || adjustmentPerUnit !== 0) {
+                    if (baseShippingPerUnit !== 0) {
                         shippingBreakdown.push([
-                            "Base Shipping",
+                            "Shopify Shipping Labels",
                             baseShippingPerUnit,
                         ]);
                     }
-                    if (insurancePerUnit > 0) {
+                    if (adjustmentPerUnit !== 0) {
                         shippingBreakdown.push([
-                            "Shipping Insurance",
-                            insurancePerUnit,
+                            "Shipping Label Adjustments",
+                            adjustmentPerUnit,
                         ]);
                     }
                 }
@@ -518,7 +409,7 @@ export const processShopifyOrder = internalAction({
                             sku,
                             name,
                             price: pricePerUnit,
-                            fees: transactionFeePerUnit,
+                            fees: feesPerUnit,
                             fees_breakdown: feesBreakdownPerUnit,
                             shipping: shippingPerUnit,
                             shipping_breakdown:
