@@ -26,8 +26,8 @@ export function isUsTiktokApiBase(
 }
 
 /**
- * US Partner Center apps must authorize on services.us.tiktokshop.com.
- * The API base (`TIKTOK_API_BASE`) does not change this URL.
+ * US Partner Center apps must authorize on services.us.tiktokshop.com with
+ * Service ID, which is not the App Key.
  */
 export function tiktokSellerAuthorizeUrl(args: {
     appKey: string;
@@ -38,8 +38,13 @@ export function tiktokSellerAuthorizeUrl(args: {
     apiBase?: string;
 }): string {
     if (isUsTiktokApiBase(args.apiBase)) {
+        if (!args.serviceId) {
+            throw new Error(
+                "TIKTOK_SERVICE_ID is required for US TikTok Shop. Copy Service ID from Partner Center app details, not App Key."
+            );
+        }
         const url = new URL(US_AUTHORIZE_URL);
-        url.searchParams.set("service_id", args.serviceId || args.appKey);
+        url.searchParams.set("service_id", args.serviceId);
         url.searchParams.set("state", args.state);
         return url.toString();
     }

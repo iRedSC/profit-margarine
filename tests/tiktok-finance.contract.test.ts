@@ -219,6 +219,18 @@ describe("TikTok US authorize host", () => {
     expect(url).not.toContain("auth.tiktok-shops.com");
   });
 
+  it("does not use App Key as the US service_id", () => {
+    expect(() =>
+      tiktokSellerAuthorizeUrl({
+        appKey: "app-key",
+        state: "abc",
+        redirectUri: "https://example.convex.site/tiktok/callback",
+        scopes: "seller.order.info",
+        apiBase: "https://open-api.us.tiktokglobalshop.com",
+      }),
+    ).toThrow(/TIKTOK_SERVICE_ID/);
+  });
+
   it("keeps the global v2 authorize URL when the API base is not US", () => {
     const url = tiktokSellerAuthorizeUrl({
       appKey: "app-key",
