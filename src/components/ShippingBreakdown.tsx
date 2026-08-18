@@ -5,6 +5,7 @@ type ShippingBreakdownProps = {
     shipping_breakdown?: Array<Array<string | number>>;
     buyerPaidShipping?: number;
     shippingPercentage?: number;
+    isPending?: boolean;
 };
 
 function ShippingPercentageLabel({
@@ -31,7 +32,12 @@ export function ShippingBreakdown({
     shipping_breakdown,
     buyerPaidShipping,
     shippingPercentage,
+    isPending,
 }: ShippingBreakdownProps) {
+    if (isPending) {
+        return <span className="text-muted-foreground">Pending</span>;
+    }
+
     const netShipping =
         buyerPaidShipping !== undefined
             ? shipping - buyerPaidShipping

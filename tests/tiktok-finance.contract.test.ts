@@ -5,8 +5,10 @@ import {
 } from "../convex/lib/orderCosts";
 import {
   allocateFinanceToUnits,
+  buyerPaidShippingFromOrder,
   parseOrderFinance,
   parseSignedAmount,
+  reconcileBuyerPaidShipping,
 } from "../convex/tiktok/finance";
 import {
   tokenExpiresAtMs,
@@ -87,6 +89,43 @@ describe("TikTok token contracts", () => {
 });
 
 describe("TikTok finance contracts", () => {
+  it("uses the US order payment field as the buyer-paid shipping source", () => {
+    expect(
+      buyerPaidShippingFromOrder({
+        payment: {
+          original_shipping_fee: "11.11",
+          shipping_fee: "0",
+          shipping_fee_seller_discount: "11.11",
+        },
+      }),
+    ).toBe(0);
+    expect(
+      buyerPaidShippingFromOrder({ payment_info: { shipping_fee: "5.83" } }),
+    ).toBe(5.83);
+  });
+
+  it("reconciles SKU shipping shares to the checkout total", () => {
+    const shares = [
+      {
+        fees: 0,
+        feesBreakdown: [],
+        shipping: 2,
+        shippingBreakdown: [],
+        buyerPaidShipping: 2,
+      },
+      {
+        fees: 0,
+        feesBreakdown: [],
+        shipping: 4,
+        shippingBreakdown: [],
+        buyerPaidShipping: 4,
+      },
+    ];
+
+    expect(reconcileBuyerPaidShipping(shares, [1, 1], 3)).toEqual([1, 2]);
+    expect(reconcileBuyerPaidShipping(shares, [1, 1], 0)).toEqual([0, 0]);
+  });
+
   it("parses estimated fees and label costs from an unsettled transaction", () => {
     const [row] = parseOrderFinance({
       est_fee_tax_amount: "-1.05",

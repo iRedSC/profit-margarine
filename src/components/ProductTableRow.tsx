@@ -62,6 +62,10 @@ export function ProductTableRow({
     const isDubious = profit > 0 && (margin < 5 || profit < 3);
     const hasCost = product.cost !== undefined;
     const hasZeroShipping = product.shipping === 0;
+    const hasPendingShipping =
+        product.marketplace === "TikTok" &&
+        product.tiktokFinanceStatus !== "settled" &&
+        hasZeroShipping;
     const truncatedName =
         product.name && product.name.length > 30
             ? product.name.substring(0, 30) + "..."
@@ -192,6 +196,7 @@ export function ProductTableRow({
                         shipping_breakdown={product.shipping_breakdown}
                         buyerPaidShipping={product.buyerPaidShipping}
                         shippingPercentage={product.shippingPercentage}
+                        isPending={hasPendingShipping}
                     />
                 </td>
                 <td
@@ -205,7 +210,12 @@ export function ProductTableRow({
                     {margin.toFixed(1)}%
                 </td>
                 <td className="px-3 py-2 align-middle text-center text-sm">
-                    {hasZeroShipping ? (
+                    {hasPendingShipping ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning">
+                            <AlertCircle className="h-3 w-3 mr-1" />
+                            Pending shipping
+                        </span>
+                    ) : hasZeroShipping ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
                             <AlertCircle className="h-3 w-3 mr-1" />
                             $0 Shipping
