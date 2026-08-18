@@ -10,29 +10,49 @@ export const US_AUTHORIZE_URL =
 export const GLOBAL_AUTHORIZE_URL =
     "https://auth.tiktok-shops.com/api/v2/authorize/";
 
+function hostnameOf(base: string): string {
+    const url = base.includes("://") ? base : `https://${base}`;
+    return new URL(url).hostname.toLowerCase();
+}
+
+/**
+ * Partner API calls go to the global Open API host. The US-looking
+ * open-api.us.tiktokglobalshop.com host is a dead nginx 404.
+ */
 export function tiktokApiBase(base = process.env.TIKTOK_API_BASE): string {
     const configured = base?.trim();
-    if (configured) {
-        return configured.includes("://")
+    if (!configured) {
+        return GLOBAL_API_BASE;
+    }
+    try {
+        if (US_API_HOSTS.has(hostnameOf(configured))) {
+            return GLOBAL_API_BASE;
+        }
+        const url = configured.includes("://")
             ? configured
             : `https://${configured}`;
+        return url.replace(/\/+$/, "");
+    } catch {
+        return GLOBAL_API_BASE;
     }
-    if (process.env.TIKTOK_SERVICE_ID?.trim()) {
-        return US_API_BASE;
-    }
-    return GLOBAL_API_BASE;
 }
 
 export function isUsTiktokApiBase(
     base = process.env.TIKTOK_API_BASE
 ): boolean {
-    try {
-        return US_API_HOSTS.has(
-            new URL(tiktokApiBase(base)).hostname.toLowerCase()
-        );
-    } catch {
-        return false;
+    if (base?.trim()) {
+        try {
+            if (US_API_HOSTS.has(hostnameOf(base))) {
+                return true;
+            }
+        } catch {
+            return false;
+        }
+        if (base !== process.env.TIKTOK_API_BASE) {
+            return false;
+        }
     }
+    return Boolean(process.env.TIKTOK_SERVICE_ID?.trim());
 }
 
 /**

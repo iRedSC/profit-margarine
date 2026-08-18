@@ -13,7 +13,7 @@ import {
   unwrapTokenPayload,
 } from "../convex/tiktok/token";
 import { signTiktokRequest } from "../convex/tiktok/sign";
-import { tiktokSellerAuthorizeUrl } from "../convex/tiktok/region";
+import { tiktokSellerAuthorizeUrl, tiktokApiBase } from "../convex/tiktok/region";
 import {
   parseAuthorizedShops,
   parseOrderSearchPage,
@@ -266,5 +266,14 @@ describe("TikTok US authorize host", () => {
 
     expect(url).toContain("https://auth.tiktok-shops.com/api/v2/authorize/");
     expect(url).toContain("app_key=app-key");
+  });
+
+  it("does not send Partner API calls to the dead open-api.us host", () => {
+    expect(tiktokApiBase("https://open-api.us.tiktokglobalshop.com")).toBe(
+      "https://open-api.tiktokglobalshop.com",
+    );
+    expect(tiktokApiBase("https://open-api.tiktokglobalshop.com")).toBe(
+      "https://open-api.tiktokglobalshop.com",
+    );
   });
 });
