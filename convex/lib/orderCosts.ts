@@ -11,6 +11,9 @@ export const SHOPIFY_TRANSACTION_FEE_FIXED_LABEL =
 export const SHOPIFY_TRANSACTION_FEE_RATE = 0.029;
 export const SHOPIFY_TRANSACTION_FEE_FIXED = 0.3;
 
+export const TIKTOK_ESTIMATED_FEE_LABEL = "Referral Fee (Estimated 6%)";
+export const TIKTOK_ESTIMATED_FEE_RATE = 0.06;
+
 export type CostBreakdown = Array<[string, number] | Array<string | number>>;
 
 /**

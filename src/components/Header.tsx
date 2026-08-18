@@ -36,6 +36,7 @@ export function Header() {
     const syncShopifyOrders = useMutation(
         api.shopifyMutations.syncShopifyOrders
     );
+    const syncTiktokOrders = useMutation(api.tiktokMutations.syncTiktokOrders);
     const syncAmazonOrdersOneYear = useMutation(
         api.products.syncAmazonOrdersOneYear
     );
@@ -44,6 +45,9 @@ export function Header() {
     );
     const syncShopifyOrdersOneYear = useMutation(
         api.products.syncShopifyOrdersOneYear
+    );
+    const syncTiktokOrdersOneYear = useMutation(
+        api.tiktokMutations.syncTiktokOrdersOneYear
     );
     const resyncAllOrders = useMutation(api.products.resyncAllOrders);
     const cancelAllActiveSyncs = useMutation(api.products.cancelAllActiveSyncs);
@@ -102,6 +106,7 @@ export function Header() {
                 await syncAmazonOrders({});
                 await syncEbayOrders({ updateExisting });
                 await syncShopifyOrders({ updateExisting });
+                await syncTiktokOrders({ updateExisting });
                 toast.success("Sync started for all marketplaces!");
             }
         } catch (error: unknown) {
@@ -118,6 +123,7 @@ export function Header() {
             await syncAmazonOrdersOneYear({ updateExisting: true });
             await syncEbayOrdersOneYear({});
             await syncShopifyOrdersOneYear({});
+            await syncTiktokOrdersOneYear({});
             toast.success("1-year sync started for all marketplaces!");
         } catch (error: unknown) {
             toast.error(`1-year sync failed: ${getErrorMessage(error)}`);

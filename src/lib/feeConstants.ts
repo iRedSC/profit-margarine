@@ -4,3 +4,4 @@ export const EBAY_ESTIMATED_FEE_LABEL = "Final Value Fee (Estimated)";
 export const SHOPIFY_TRANSACTION_FEE_PCT_LABEL = "Transaction Fee (2.9%)";
 export const SHOPIFY_TRANSACTION_FEE_FIXED_LABEL =
   "Transaction Fee (Fixed $0.30)";
+export const TIKTOK_ESTIMATED_FEE_LABEL = "Referral Fee (Estimated 6%)";
