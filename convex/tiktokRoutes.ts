@@ -8,14 +8,16 @@ export const tiktokInstall = createOAuthInstallHandler({
     missingConfigMessage: "TikTok Shop OAuth not configured",
     buildAuthUrl: () => {
         const clientKey = process.env.TIKTOK_CLIENT_KEY;
-        const redirectUri = process.env.TIKTOK_REDIRECT_URI;
+        const siteUrl = process.env.CONVEX_SITE_URL;
 
         if (!clientKey) {
             return jsonError("TikTok Shop OAuth not configured", 500);
         }
-        if (!redirectUri) {
-            return jsonError("TIKTOK_REDIRECT_URI not configured", 500);
+        if (!siteUrl) {
+            return jsonError("CONVEX_SITE_URL not configured", 500);
         }
+
+        const redirectUri = `${siteUrl}/tiktok/callback`;
 
         const scopes = [
             "shop.product.basic",
