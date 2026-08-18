@@ -29,7 +29,9 @@ export function MarketplaceConnect({ isConnected, config }: MarketplaceConnectPr
         setIsConnecting(true);
         
         // Redirect to the backend install endpoint which handles the OAuth flow
-        const url = buildInstallUrl(config.installUrl);
+        const url = buildInstallUrl(config.installUrl, {
+            return_to: window.location.origin,
+        });
         window.location.href = url;
     };
 

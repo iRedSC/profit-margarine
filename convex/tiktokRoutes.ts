@@ -3,11 +3,25 @@ import {
     createOAuthInstallHandler,
     jsonError,
 } from "./lib/oauthHttp";
+import {
+    createOAuthReturnState,
+    isAllowedOAuthReturnTo,
+    originOrNull,
+    readOAuthReturnTo,
+} from "./lib/oauthReturnState";
 import { tiktokSellerAuthorizeUrl, isUsTiktokApiBase } from "./tiktok/region";
+
+function configuredFrontendUrl(): string {
+    return (
+        originOrNull(process.env.VITE_URL || "") ||
+        originOrNull(process.env.SITE_URL || "") ||
+        "http://localhost:5173"
+    );
+}
 
 export const tiktokInstall = createOAuthInstallHandler({
     missingConfigMessage: "TikTok Shop OAuth not configured",
-    buildAuthUrl: () => {
+    buildAuthUrl: async ({ searchParams }) => {
         const clientKey = process.env.TIKTOK_CLIENT_KEY;
         const siteUrl = process.env.CONVEX_SITE_URL;
 
@@ -25,7 +39,6 @@ export const tiktokInstall = createOAuthInstallHandler({
             "seller.order.info",
             "seller.finance.info",
         ].join(" ");
-        const state = crypto.randomUUID();
 
         if (isUsTiktokApiBase() && !serviceId) {
             return jsonError(
@@ -33,6 +46,22 @@ export const tiktokInstall = createOAuthInstallHandler({
                 500
             );
         }
+
+        const requestedReturnTo = searchParams.get("return_to");
+        const fallback = configuredFrontendUrl();
+        const returnTo =
+            requestedReturnTo &&
+            isAllowedOAuthReturnTo(requestedReturnTo, [
+                process.env.VITE_URL,
+                process.env.SITE_URL,
+            ])
+                ? originOrNull(requestedReturnTo) || fallback
+                : fallback;
+
+        const secret = process.env.TIKTOK_CLIENT_SECRET;
+        const state = secret
+            ? await createOAuthReturnState(returnTo, secret)
+            : crypto.randomUUID();
 
         return tiktokSellerAuthorizeUrl({
             appKey: clientKey,
@@ -46,13 +75,20 @@ export const tiktokInstall = createOAuthInstallHandler({
 
 export const tiktokCallback = createOAuthCallbackHandler({
     requiredParams: ["code"],
+    resolveFrontendUrl: async ({ frontendUrl, searchParams }) => {
+        const secret = process.env.TIKTOK_CLIENT_SECRET;
+        const state = searchParams.get("state");
+        if (!secret || !state) {
+            return frontendUrl;
+        }
+        return (await readOAuthReturnTo(state, secret)) || frontendUrl;
+    },
     buildSuccessRedirect: ({ frontendUrl, searchParams }) => {
         const code = searchParams.get("code")!;
-        const state = searchParams.get("state");
         const error = searchParams.get("error");
         if (error) {
             return `${frontendUrl}/?error=${encodeURIComponent(error)}`;
         }
-        return `${frontendUrl}/?tiktok_code=${encodeURIComponent(code)}${state ? `&state=${encodeURIComponent(state)}` : ""}`;
+        return `${frontendUrl}/?tiktok_code=${encodeURIComponent(code)}`;
     },
 });

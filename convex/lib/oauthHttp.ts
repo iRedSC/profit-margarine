@@ -52,7 +52,7 @@ type OAuthInstallConfig = {
     buildAuthUrl: (args: {
         origin: string;
         searchParams: URLSearchParams;
-    }) => string | Response;
+    }) => string | Response | Promise<string | Response>;
     onError?: (error: unknown) => Response;
 };
 
@@ -63,7 +63,7 @@ export function createOAuthInstallHandler(config: OAuthInstallConfig) {
     return httpAction(async (_ctx, req) => {
         try {
             const url = new URL(req.url);
-            const authUrlOrResponse = config.buildAuthUrl({
+            const authUrlOrResponse = await config.buildAuthUrl({
                 origin: url.origin,
                 searchParams: url.searchParams,
             });
@@ -99,7 +99,12 @@ type OAuthCallbackConfig = {
     buildSuccessRedirect: (args: {
         frontendUrl: string;
         searchParams: URLSearchParams;
-    }) => string;
+    }) => string | Promise<string>;
+    /** Override VITE_URL when the provider echoes a trusted return origin in state */
+    resolveFrontendUrl?: (args: {
+        frontendUrl: string;
+        searchParams: URLSearchParams;
+    }) => string | Promise<string>;
     onError?: (error: unknown, frontendUrl: string) => Response;
 };
 
@@ -109,9 +114,18 @@ type OAuthCallbackConfig = {
  */
 export function createOAuthCallbackHandler(config: OAuthCallbackConfig) {
     return httpAction(async (_ctx, req) => {
-        const frontendUrl = process.env.VITE_URL || "http://localhost:5173";
+        const configuredFrontendUrl =
+            process.env.VITE_URL ||
+            process.env.SITE_URL ||
+            "http://localhost:5173";
+        let frontendUrl = configuredFrontendUrl;
         try {
             const url = new URL(req.url);
+            frontendUrl =
+                (await config.resolveFrontendUrl?.({
+                    frontendUrl: configuredFrontendUrl,
+                    searchParams: url.searchParams,
+                })) || configuredFrontendUrl;
             if (config.redirectOnProviderError !== false) {
                 const oauthError = url.searchParams.get("error");
                 if (oauthError) {
@@ -137,7 +151,7 @@ export function createOAuthCallbackHandler(config: OAuthCallbackConfig) {
             return new Response(null, {
                 status: 302,
                 headers: {
-                    Location: config.buildSuccessRedirect({
+                    Location: await config.buildSuccessRedirect({
                         frontendUrl,
                         searchParams: url.searchParams,
                     }),
