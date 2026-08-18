@@ -7,7 +7,7 @@ import {
     createOAuthReturnState,
     isAllowedOAuthReturnTo,
     originOrNull,
-    readOAuthReturnTo,
+    parseOAuthReturnTo,
 } from "./lib/oauthReturnState";
 import { tiktokSellerAuthorizeUrl, isUsTiktokApiBase } from "./tiktok/region";
 
@@ -19,9 +19,23 @@ function configuredFrontendUrl(): string {
     );
 }
 
+function frontendUrlFromState(state: string | null, fallback: string): string {
+    const parsed = state ? parseOAuthReturnTo(state) : undefined;
+    if (
+        parsed &&
+        isAllowedOAuthReturnTo(parsed, [
+            process.env.VITE_URL,
+            process.env.SITE_URL,
+        ])
+    ) {
+        return parsed;
+    }
+    return fallback;
+}
+
 export const tiktokInstall = createOAuthInstallHandler({
     missingConfigMessage: "TikTok Shop OAuth not configured",
-    buildAuthUrl: async ({ searchParams }) => {
+    buildAuthUrl: ({ searchParams }) => {
         const clientKey = process.env.TIKTOK_CLIENT_KEY;
         const siteUrl = process.env.CONVEX_SITE_URL;
 
@@ -58,15 +72,10 @@ export const tiktokInstall = createOAuthInstallHandler({
                 ? originOrNull(requestedReturnTo) || fallback
                 : fallback;
 
-        const secret = process.env.TIKTOK_CLIENT_SECRET;
-        const state = secret
-            ? await createOAuthReturnState(returnTo, secret)
-            : crypto.randomUUID();
-
         return tiktokSellerAuthorizeUrl({
             appKey: clientKey,
             serviceId,
-            state,
+            state: createOAuthReturnState(returnTo),
             redirectUri,
             scopes,
         });
@@ -75,20 +84,25 @@ export const tiktokInstall = createOAuthInstallHandler({
 
 export const tiktokCallback = createOAuthCallbackHandler({
     requiredParams: ["code"],
-    resolveFrontendUrl: async ({ frontendUrl, searchParams }) => {
-        const secret = process.env.TIKTOK_CLIENT_SECRET;
-        const state = searchParams.get("state");
-        if (!secret || !state) {
-            return frontendUrl;
-        }
-        return (await readOAuthReturnTo(state, secret)) || frontendUrl;
-    },
+    resolveFrontendUrl: ({ frontendUrl, searchParams }) =>
+        frontendUrlFromState(searchParams.get("state"), frontendUrl),
     buildSuccessRedirect: ({ frontendUrl, searchParams }) => {
         const code = searchParams.get("code")!;
         const error = searchParams.get("error");
         if (error) {
             return `${frontendUrl}/?error=${encodeURIComponent(error)}`;
         }
-        return `${frontendUrl}/?tiktok_code=${encodeURIComponent(code)}`;
+        const params = new URLSearchParams({ tiktok_code: code });
+        const parsed = parseOAuthReturnTo(searchParams.get("state") ?? "");
+        if (
+            parsed &&
+            isAllowedOAuthReturnTo(parsed, [
+                process.env.VITE_URL,
+                process.env.SITE_URL,
+            ])
+        ) {
+            params.set("return_to", parsed);
+        }
+        return `${frontendUrl}/?${params.toString()}`;
     },
 });

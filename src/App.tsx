@@ -8,6 +8,11 @@ import { AppSidebar } from "./components/Sidebar";
 import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
 import { useAltDragSelection } from "./hooks/useAltDragSelection";
 import { AltDragSelectionOverlay } from "./components/AltDragSelectionOverlay";
+import {
+    isAllowedOAuthReturnTo,
+    originOrNull,
+    parseOAuthReturnTo,
+} from "../convex/lib/oauthReturnState";
 
 export default function App() {
     const [selectedView, setSelectedView] = useState("products");
@@ -65,7 +70,23 @@ export default function App() {
         }
 
         // Handle TikTok Shop OAuth
-        const tiktokCode = params.get("tiktok_code");
+        const parsedStateReturn = parseOAuthReturnTo(params.get("state") ?? "");
+        const returnOrigin =
+            originOrNull(params.get("return_to") ?? "") || parsedStateReturn;
+        const tiktokCode =
+            params.get("tiktok_code") ||
+            (parsedStateReturn ? params.get("code") : null);
+        if (
+            tiktokCode &&
+            returnOrigin &&
+            returnOrigin !== window.location.origin &&
+            isAllowedOAuthReturnTo(returnOrigin, [window.location.origin])
+        ) {
+            window.location.replace(
+                `${returnOrigin}/?tiktok_code=${encodeURIComponent(tiktokCode)}`
+            );
+            return;
+        }
         if (tiktokCode) {
             completeTiktokOAuth({ code: tiktokCode })
                 .then(() => {
