@@ -183,6 +183,69 @@ export async function getOrderStatementTransactions(args: {
     });
 }
 
+export type TiktokUnsettledPage = {
+    transactions: unknown[];
+    nextPageToken?: string;
+};
+
+export async function getTiktokUnsettledTransactions(args: {
+    accessToken: string;
+    shopCipher: string;
+    pageToken?: string;
+    searchTimeGe?: number;
+    searchTimeLt?: number;
+}): Promise<TiktokUnsettledPage> {
+    const query: Record<string, string> = {
+        shop_cipher: args.shopCipher,
+        page_size: "100",
+        sort_field: "order_create_time",
+        sort_order: "DESC",
+    };
+    if (args.pageToken) query.page_token = args.pageToken;
+    if (args.searchTimeGe) query.search_time_ge = String(args.searchTimeGe);
+    if (args.searchTimeLt) query.search_time_lt = String(args.searchTimeLt);
+
+    const data = await tiktokFetch({
+        path: "/finance/202507/orders/unsettled",
+        accessToken: args.accessToken,
+        query,
+    });
+    if (!isRecord(data)) return { transactions: [] };
+
+    return {
+        transactions: Array.isArray(data.transactions)
+            ? data.transactions
+            : [],
+        nextPageToken:
+            typeof data.next_page_token === "string" && data.next_page_token
+                ? data.next_page_token
+                : undefined,
+    };
+}
+
+export async function findTiktokUnsettledTransaction(args: {
+    accessToken: string;
+    shopCipher: string;
+    orderId: string;
+}): Promise<unknown> {
+    let pageToken: string | undefined;
+    do {
+        const page = await getTiktokUnsettledTransactions({
+            accessToken: args.accessToken,
+            shopCipher: args.shopCipher,
+            pageToken,
+        });
+        const match = page.transactions.find(
+            (transaction) =>
+                isRecord(transaction) && transaction.order_id === args.orderId
+        );
+        if (match) return match;
+        pageToken = page.nextPageToken;
+    } while (pageToken);
+
+    return undefined;
+}
+
 export async function getTiktokApiContext(
     ctx: ActionCtx,
     userId: Id<"users">

@@ -87,6 +87,39 @@ describe("TikTok token contracts", () => {
 });
 
 describe("TikTok finance contracts", () => {
+  it("parses estimated fees and label costs from an unsettled transaction", () => {
+    const [row] = parseOrderFinance({
+      est_fee_tax_amount: "-1.05",
+      est_shipping_cost_amount: "0",
+      fee_tax_breakdown: {
+        fee: { referral_fee_amount: "-1.05" },
+        tax: {
+          sales_tax_amount: "-1.54",
+          sales_tax_payment_amount: "1.54",
+        },
+      },
+      shipping_cost_breakdown: {
+        actual_shipping_fee_amount: "-6.48",
+        customer_paid_shipping_fee_amount: "6.48",
+        shipping_fee_discount_amount: "0",
+        supplementary_component: {
+          fbm_shipping_cost_amount: "-6.48",
+        },
+      },
+    });
+
+    expect(row).toMatchObject({
+      skuId: "",
+      fees: 1.05,
+      shipping: 6.48,
+      buyerPaidShipping: 6.48,
+    });
+    expect(row.feesBreakdown).toEqual([["referral_fee", 1.05]]);
+    expect(row.shippingBreakdown).toEqual([
+      ["actual_shipping_fee", 6.48],
+    ]);
+  });
+
   it("parses SKU statement transactions into seller fees and net shipping", () => {
     const [row] = parseOrderFinance(statementPayload);
 

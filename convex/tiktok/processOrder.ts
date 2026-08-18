@@ -53,6 +53,7 @@ export const processTiktokOrder = internalAction({
         orderId: v.string(),
         accessToken: v.string(),
         shopCipher: v.string(),
+        unsettledFinanceJson: v.optional(v.string()),
         updateExisting: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
@@ -189,6 +190,16 @@ export const processTiktokOrder = internalAction({
                     })
                 );
                 financeRows = [];
+            }
+
+            if (
+                financeRows.length === 0 &&
+                args.unsettledFinanceJson
+            ) {
+                const unsettledPayload: unknown = JSON.parse(
+                    args.unsettledFinanceJson
+                );
+                financeRows = parseOrderFinance(unsettledPayload);
             }
 
             if (financeRows.length === 0) {
