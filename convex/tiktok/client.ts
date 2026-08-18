@@ -5,8 +5,9 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { signTiktokRequest } from "./sign";
 import { isRecord } from "./token";
+import { parseAuthorizedShops, parseOrderSearchPage } from "./parse";
+import { tiktokApiBase } from "./region";
 
-const DEFAULT_API_BASE = "https://open-api.tiktokglobalshop.com";
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 export type TiktokShop = {
@@ -20,10 +21,11 @@ export type TiktokApiContext = {
     accessToken: string;
     shopCipher: string;
     shopId: string;
+    shops: TiktokShop[];
 };
 
 function apiBase(): string {
-    return process.env.TIKTOK_API_BASE || DEFAULT_API_BASE;
+    return tiktokApiBase();
 }
 
 function requireAppCredentials(): { appKey: string; appSecret: string } {
@@ -93,8 +95,11 @@ async function tiktokFetch(args: {
 
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
+        const detail = isRecord(payload) && typeof payload.message === "string"
+            ? payload.message
+            : "";
         throw new Error(
-            `TikTok Shop API ${args.path} failed: ${response.status}`
+            `TikTok Shop API ${args.path} failed: ${response.status}${detail ? ` ${detail}` : ""}`
         );
     }
     return extractData(payload, `TikTok Shop API ${args.path}`);
@@ -107,25 +112,7 @@ export async function getAuthorizedShops(
         path: "/authorization/202309/shops",
         accessToken,
     });
-    const shopsRaw = isRecord(data) ? data.shops : undefined;
-    if (!Array.isArray(shopsRaw)) {
-        return [];
-    }
-
-    const shops: TiktokShop[] = [];
-    for (const shop of shopsRaw) {
-        if (!isRecord(shop)) continue;
-        const id = typeof shop.id === "string" ? shop.id : "";
-        const cipher = typeof shop.cipher === "string" ? shop.cipher : "";
-        if (!id || !cipher) continue;
-        shops.push({
-            id,
-            cipher,
-            name: typeof shop.name === "string" ? shop.name : undefined,
-            region: typeof shop.region === "string" ? shop.region : undefined,
-        });
-    }
-    return shops;
+    return parseAuthorizedShops(data);
 }
 
 export async function searchTiktokOrders(args: {
@@ -156,23 +143,7 @@ export async function searchTiktokOrders(args: {
         },
     });
 
-    const ordersRaw = isRecord(data) ? data.orders : undefined;
-    const orderIds: string[] = [];
-    if (Array.isArray(ordersRaw)) {
-        for (const order of ordersRaw) {
-            if (!isRecord(order)) continue;
-            if (typeof order.id === "string" && order.id) {
-                orderIds.push(order.id);
-            }
-        }
-    }
-
-    const nextPageToken =
-        isRecord(data) && typeof data.next_page_token === "string"
-            ? data.next_page_token
-            : undefined;
-
-    return { orderIds, nextPageToken };
+    return parseOrderSearchPage(data);
 }
 
 export async function getTiktokOrderDetails(args: {
@@ -193,7 +164,9 @@ export async function getTiktokOrderDetails(args: {
         },
     });
 
-    const ordersRaw = isRecord(data) ? data.orders : undefined;
+    const ordersRaw = isRecord(data)
+        ? (data.orders ?? data.order_list)
+        : undefined;
     return Array.isArray(ordersRaw) ? ordersRaw : [];
 }
 
@@ -241,12 +214,15 @@ export async function getTiktokApiContext(
     const shops = await getAuthorizedShops(connection.accessToken);
     const shop = shops[0];
     if (!shop) {
-        throw new Error("No authorized TikTok Shop found for this account.");
+        throw new Error(
+            `No authorized TikTok Shop found for this account (${apiBase()}).`
+        );
     }
 
     return {
         accessToken: connection.accessToken,
         shopCipher: shop.cipher,
         shopId: shop.id,
+        shops,
     };
 }

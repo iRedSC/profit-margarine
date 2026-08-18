@@ -87,7 +87,9 @@ export const processTiktokOrder = internalAction({
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            const status = asString(orderRaw.status).toUpperCase();
+            const status = asString(
+                orderRaw.status ?? orderRaw.order_status
+            ).toUpperCase();
             if (SKIP_ORDER_STATUSES.has(status)) {
                 log.skipped = true;
                 log.skippedReason = `Order status ${status}`;
@@ -109,7 +111,9 @@ export const processTiktokOrder = internalAction({
 
             const rawLineItems = Array.isArray(orderRaw.line_items)
                 ? orderRaw.line_items
-                : [];
+                : Array.isArray(orderRaw.item_list)
+                  ? orderRaw.item_list
+                  : [];
             const lineItems: Array<{
                 skuId: string;
                 sku: string;
@@ -122,7 +126,10 @@ export const processTiktokOrder = internalAction({
                 if (!isRecord(rawItem) || isCancelledLine(rawItem)) {
                     continue;
                 }
-                const price = parseSignedAmount(rawItem.sale_price);
+                const price =
+                    parseSignedAmount(rawItem.sale_price) ||
+                    parseSignedAmount(rawItem.original_price) ||
+                    parseSignedAmount(rawItem.sku_original_price);
                 if (price <= 0) {
                     continue;
                 }

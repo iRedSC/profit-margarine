@@ -53,6 +53,14 @@ export const syncTiktokOrders = internalAction({
             await validateSyncActive(ctx, args.syncId);
 
             const api = await getTiktokApiContext(ctx, args.userId);
+            console.error(
+                JSON.stringify({
+                    operation: "tiktok_sync_shops",
+                    shopCount: api.shops.length,
+                    shopIds: api.shops.map((shop) => shop.id),
+                    regions: api.shops.map((shop) => shop.region),
+                })
+            );
 
             const endDateObj = args.endDate
                 ? new Date(args.endDate)
@@ -75,7 +83,7 @@ export const syncTiktokOrders = internalAction({
                 SyncMessages.fetching("tiktok")
             );
 
-            const orderIds: string[] = [];
+            const ordersByShop = new Map<string, string>();
 
             for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
                 await validateSyncActive(ctx, args.syncId);
@@ -94,44 +102,61 @@ export const syncTiktokOrders = internalAction({
                     );
                 }
 
-                let pageToken: string | undefined;
-                do {
-                    const page = await searchTiktokOrders({
-                        accessToken: api.accessToken,
-                        shopCipher: api.shopCipher,
-                        createTimeGe: Math.floor(batch.start.getTime() / 1000),
-                        createTimeLt: Math.floor(batch.end.getTime() / 1000),
-                        pageToken,
-                    });
-                    orderIds.push(...page.orderIds);
-                    pageToken = page.nextPageToken;
-                } while (pageToken);
+                for (const shop of api.shops) {
+                    let pageToken: string | undefined;
+                    do {
+                        const page = await searchTiktokOrders({
+                            accessToken: api.accessToken,
+                            shopCipher: shop.cipher,
+                            createTimeGe: Math.floor(
+                                batch.start.getTime() / 1000
+                            ),
+                            createTimeLt: Math.floor(
+                                batch.end.getTime() / 1000
+                            ),
+                            pageToken,
+                        });
+                        for (const orderId of page.orderIds) {
+                            ordersByShop.set(orderId, shop.cipher);
+                        }
+                        pageToken = page.nextPageToken;
+                    } while (pageToken);
+                }
 
                 if (batchIndex < batches.length - 1) {
                     await new Promise((resolve) => setTimeout(resolve, 1000));
                 }
             }
 
-            const uniqueOrderIds = [...new Set(orderIds)];
+            const uniqueOrders = [...ordersByShop.entries()].map(
+                ([orderId, shopCipher]) => ({ orderId, shopCipher })
+            );
+            console.error(
+                JSON.stringify({
+                    operation: "tiktok_sync_search",
+                    orderCount: uniqueOrders.length,
+                    batchCount: batches.length,
+                })
+            );
             let processedCount = 0;
 
             await processWithProgress(
                 ctx,
                 args.syncId,
-                uniqueOrderIds,
-                async (orderId: string) => {
+                uniqueOrders,
+                async (order) => {
                     try {
                         await ctx.runAction(internal.tiktok.processTiktokOrder, {
                             userId: args.userId,
-                            orderId,
+                            orderId: order.orderId,
                             accessToken: api.accessToken,
-                            shopCipher: api.shopCipher,
+                            shopCipher: order.shopCipher,
                             updateExisting: args.updateExisting ?? false,
                         });
                         processedCount++;
                     } catch (error) {
                         console.error(
-                            `Error processing TikTok order ${orderId}:`,
+                            `Error processing TikTok order ${order.orderId}:`,
                             error
                         );
                     }

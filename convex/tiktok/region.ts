@@ -3,23 +3,33 @@ const US_API_HOSTS = new Set([
     "open-api-us.tiktokglobalshop.com",
 ]);
 
+export const US_API_BASE = "https://open-api.us.tiktokglobalshop.com";
+export const GLOBAL_API_BASE = "https://open-api.tiktokglobalshop.com";
 export const US_AUTHORIZE_URL =
     "https://services.tiktokshops.us/open/authorize";
 export const GLOBAL_AUTHORIZE_URL =
     "https://auth.tiktok-shops.com/api/v2/authorize/";
 
+export function tiktokApiBase(base = process.env.TIKTOK_API_BASE): string {
+    const configured = base?.trim();
+    if (configured) {
+        return configured.includes("://")
+            ? configured
+            : `https://${configured}`;
+    }
+    if (process.env.TIKTOK_SERVICE_ID?.trim()) {
+        return US_API_BASE;
+    }
+    return GLOBAL_API_BASE;
+}
+
 export function isUsTiktokApiBase(
     base = process.env.TIKTOK_API_BASE
 ): boolean {
-    if (!base?.trim()) {
-        return false;
-    }
-
     try {
-        const host = new URL(
-            base.includes("://") ? base : `https://${base}`
-        ).hostname.toLowerCase();
-        return US_API_HOSTS.has(host);
+        return US_API_HOSTS.has(
+            new URL(tiktokApiBase(base)).hostname.toLowerCase()
+        );
     } catch {
         return false;
     }

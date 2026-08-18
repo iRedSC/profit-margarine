@@ -14,6 +14,10 @@ import {
 } from "../convex/tiktok/token";
 import { signTiktokRequest } from "../convex/tiktok/sign";
 import { tiktokSellerAuthorizeUrl } from "../convex/tiktok/region";
+import {
+  parseAuthorizedShops,
+  parseOrderSearchPage,
+} from "../convex/tiktok/parse";
 import { isEstimatedFee } from "../src/lib/feeUtils";
 
 const statementPayload = {
@@ -200,6 +204,26 @@ describe("TikTok request signing", () => {
         body,
       }),
     ).toBe(sign);
+  });
+});
+
+describe("TikTok order search parsing", () => {
+  it("reads order_id when the list omits id", () => {
+    expect(
+      parseOrderSearchPage({
+        orders: [{ order_id: "576932018345678901" }],
+        next_page_token: "",
+        total_count: 1,
+      }).orderIds,
+    ).toEqual(["576932018345678901"]);
+  });
+
+  it("reads shop_cipher when cipher is absent", () => {
+    expect(
+      parseAuthorizedShops({
+        shops: [{ id: 123, shop_cipher: "ROW_abc", region: "US" }],
+      }),
+    ).toEqual([{ id: "123", cipher: "ROW_abc", region: "US" }]);
   });
 });
 
