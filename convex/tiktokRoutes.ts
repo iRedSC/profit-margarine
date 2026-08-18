@@ -20,9 +20,9 @@ export const tiktokInstall = createOAuthInstallHandler({
         const redirectUri = `${siteUrl}/tiktok/callback`;
 
         const scopes = [
-            "shop.product.basic",
-            "shop.product.detail",
-            "shop.order.read",
+            "seller.authorization.info",
+            "seller.order.info",
+            "seller.finance.info",
         ].join(" ");
 
         const state = crypto.randomUUID();

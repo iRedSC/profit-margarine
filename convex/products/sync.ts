@@ -228,7 +228,8 @@ export const cancelActiveSyncsForMarketplace = internalMutation({
         marketplace: v.union(
             v.literal("amazon"),
             v.literal("ebay"),
-            v.literal("shopify")
+            v.literal("shopify"),
+            v.literal("tiktok")
         ),
     },
     handler: async (ctx, args) => {

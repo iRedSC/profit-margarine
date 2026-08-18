@@ -75,7 +75,8 @@ const applicationTables = {
         marketplace: v.union(
             v.literal("amazon"),
             v.literal("ebay"),
-            v.literal("shopify")
+            v.literal("shopify"),
+            v.literal("tiktok")
         ),
         status: v.union(
             v.literal("active"),

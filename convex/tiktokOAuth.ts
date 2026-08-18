@@ -8,6 +8,7 @@ import {
     parseOAuthTokenJson,
     requireTokenString,
 } from "./lib/oauthHttp";
+import { tokenExpiresAtMs, unwrapTokenPayload } from "./tiktok/token";
 
 function refreshTokenOrFallback(
     value: unknown,
@@ -49,15 +50,14 @@ export const exchangeCodeForToken = internalAction({
             method: "GET",
         });
 
-        const data = await parseOAuthTokenJson(
+        const raw = await parseOAuthTokenJson(
             response,
             "Failed to exchange code for token"
         );
+        const data = unwrapTokenPayload(raw);
         const accessToken = requireTokenString(data, "access_token");
         const refreshToken = optionalTokenString(data, "refresh_token");
-        const expiresIn = Number(data.expires_in); // seconds
 
-        // Store the connection in the database
         await ctx.runMutation(
             internal.marketplaceConnections.storeMarketplaceConnection,
             {
@@ -65,7 +65,7 @@ export const exchangeCodeForToken = internalAction({
                 marketplace: "tiktok",
                 accessToken,
                 refreshToken,
-                expiresAt: Date.now() + expiresIn * 1000,
+                expiresAt: tokenExpiresAtMs(data),
             }
         );
 
@@ -114,18 +114,17 @@ export const refreshAccessToken = internalAction({
             method: "GET",
         });
 
-        const data = await parseOAuthTokenJson(
+        const raw = await parseOAuthTokenJson(
             response,
             "Failed to refresh token"
         );
+        const data = unwrapTokenPayload(raw);
         const accessToken = requireTokenString(data, "access_token");
         const refreshToken = refreshTokenOrFallback(
             data.refresh_token,
             connection.refreshToken
         );
-        const expiresIn = Number(data.expires_in);
 
-        // Update the connection in the database
         await ctx.runMutation(
             internal.marketplaceConnections.storeMarketplaceConnection,
             {
@@ -133,7 +132,7 @@ export const refreshAccessToken = internalAction({
                 marketplace: "tiktok",
                 accessToken,
                 refreshToken,
-                expiresAt: Date.now() + expiresIn * 1000,
+                expiresAt: tokenExpiresAtMs(data),
             }
         );
 

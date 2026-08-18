@@ -11,6 +11,7 @@ import {
 } from "./marketplaceUtils";
 import { Id } from "./_generated/dataModel";
 import { productMarketplaceValidator } from "./lib/validators";
+import { getTiktokApiContext } from "./tiktok/client";
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -96,7 +97,18 @@ async function processOrderByMarketplace(
         });
     }
 
-    throw new Error(`Unsupported marketplace: ${args.marketplace}`);
+    if (args.marketplace === "TikTok") {
+        const api = await getTiktokApiContext(ctx, args.userId);
+        return await ctx.runAction(internal.tiktok.processTiktokOrder, {
+            userId: args.userId,
+            orderId: args.orderId,
+            accessToken: api.accessToken,
+            shopCipher: api.shopCipher,
+            updateExisting: true,
+        });
+    }
+
+    throw new Error("Unsupported marketplace");
 }
 
 export const resyncOrderAction = internalAction({
