@@ -17,6 +17,13 @@ export type SkuFinance = {
 
 export type TiktokFinanceStatus = "estimated" | "unsettled" | "settled";
 
+export function isTiktokShippingEstimated(
+    financeStatus: TiktokFinanceStatus,
+    financeShippingTotal: number
+): boolean {
+    return financeStatus !== "settled" && financeShippingTotal === 0;
+}
+
 const SKIP_FEE_KEYS = new Set([
     "affiliate_commission_amount_before_pit",
     "affiliate_commission_before_pit_amount",

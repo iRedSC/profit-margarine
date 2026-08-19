@@ -18,6 +18,7 @@ import {
     searchTiktokOrders,
 } from "./client";
 import { isRecord } from "./token";
+import { tiktokString } from "./parse";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -153,14 +154,10 @@ export const syncTiktokOrders = internalAction({
                             ),
                         });
                         for (const transaction of page.transactions) {
-                            if (
-                                isRecord(transaction) &&
-                                typeof transaction.order_id === "string"
-                            ) {
-                                unsettledByOrder.set(
-                                    transaction.order_id,
-                                    transaction
-                                );
+                            if (!isRecord(transaction)) continue;
+                            const orderId = tiktokString(transaction.order_id);
+                            if (orderId) {
+                                unsettledByOrder.set(orderId, transaction);
                             }
                         }
                         pageToken = page.nextPageToken;

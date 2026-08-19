@@ -65,6 +65,9 @@ describe("profitability contracts", () => {
     expect(isOverviewExcluded(product())).toBe(false);
     expect(isOverviewExcluded(product({ cost: undefined }))).toBe(true);
     expect(isOverviewExcluded(product({ shippingEstimated: true }))).toBe(true);
+    expect(isOverviewExcluded(product({ shippingEstimated: false }))).toBe(
+      false
+    );
   });
 
   it("builds a continuous daily series using order dates and complete costs", () => {

@@ -11,10 +11,7 @@ import {
 } from "./marketplaceUtils";
 import { Id } from "./_generated/dataModel";
 import { productMarketplaceValidator } from "./lib/validators";
-import {
-    findTiktokUnsettledTransaction,
-    getTiktokApiContext,
-} from "./tiktok/client";
+import { getTiktokApiContext } from "./tiktok/client";
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -102,19 +99,11 @@ async function processOrderByMarketplace(
 
     if (args.marketplace === "TikTok") {
         const api = await getTiktokApiContext(ctx, args.userId);
-        const unsettledFinance = await findTiktokUnsettledTransaction({
-            accessToken: api.accessToken,
-            shopCipher: api.shopCipher,
-            orderId: args.orderId,
-        });
         return await ctx.runAction(internal.tiktok.processTiktokOrder, {
             userId: args.userId,
             orderId: args.orderId,
             accessToken: api.accessToken,
             shopCipher: api.shopCipher,
-            unsettledFinanceJson: unsettledFinance
-                ? JSON.stringify(unsettledFinance)
-                : undefined,
             updateExisting: true,
         });
     }

@@ -5,7 +5,11 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { signTiktokRequest } from "./sign";
 import { isRecord } from "./token";
-import { parseAuthorizedShops, parseOrderSearchPage } from "./parse";
+import {
+    parseAuthorizedShops,
+    parseOrderSearchPage,
+    tiktokString,
+} from "./parse";
 import { tiktokApiBase } from "./region";
 
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -227,6 +231,8 @@ export async function findTiktokUnsettledTransaction(args: {
     accessToken: string;
     shopCipher: string;
     orderId: string;
+    searchTimeGe?: number;
+    searchTimeLt?: number;
 }): Promise<unknown> {
     let pageToken: string | undefined;
     do {
@@ -234,10 +240,13 @@ export async function findTiktokUnsettledTransaction(args: {
             accessToken: args.accessToken,
             shopCipher: args.shopCipher,
             pageToken,
+            searchTimeGe: args.searchTimeGe,
+            searchTimeLt: args.searchTimeLt,
         });
         const match = page.transactions.find(
             (transaction) =>
-                isRecord(transaction) && transaction.order_id === args.orderId
+                isRecord(transaction) &&
+                tiktokString(transaction.order_id) === args.orderId
         );
         if (match) return match;
         pageToken = page.nextPageToken;

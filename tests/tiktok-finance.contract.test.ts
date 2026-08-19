@@ -10,6 +10,7 @@ import {
   parseOrderFinance,
   parseSignedAmount,
   reconcileBuyerPaidShipping,
+  isTiktokShippingEstimated,
 } from "../convex/tiktok/finance";
 import {
   tokenExpiresAtMs,
@@ -20,6 +21,7 @@ import { tiktokSellerAuthorizeUrl, tiktokApiBase } from "../convex/tiktok/region
 import {
   parseAuthorizedShops,
   parseOrderSearchPage,
+  tiktokString,
 } from "../convex/tiktok/parse";
 import { isEstimatedFee } from "../src/lib/feeUtils";
 
@@ -130,6 +132,18 @@ describe("TikTok finance contracts", () => {
 
     expect(reconcileBuyerPaidShipping(shares, [1, 1], 3)).toEqual([1, 2]);
     expect(reconcileBuyerPaidShipping(shares, [1, 1], 0)).toEqual([0, 0]);
+  });
+
+  it("treats unsettled rows with real label costs as known, not estimated", () => {
+    expect(isTiktokShippingEstimated("settled", 0)).toBe(false);
+    expect(isTiktokShippingEstimated("unsettled", 6.48)).toBe(false);
+    expect(isTiktokShippingEstimated("unsettled", 0)).toBe(true);
+    expect(isTiktokShippingEstimated("estimated", 0)).toBe(true);
+  });
+
+  it("matches numeric and string TikTok order ids", () => {
+    expect(tiktokString(123456789)).toBe("123456789");
+    expect(tiktokString("576932018345678901")).toBe("576932018345678901");
   });
 
   it("parses estimated fees and label costs from an unsettled transaction", () => {

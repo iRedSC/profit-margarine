@@ -6,6 +6,7 @@ import { internal } from "../_generated/api";
 import { getErrorMessage } from "../marketplaceUtils";
 import { isRecord } from "./token";
 import {
+    findTiktokUnsettledTransaction,
     getOrderStatementTransactions,
     getTiktokOrderDetails,
 } from "./client";
@@ -13,6 +14,7 @@ import {
     allocateFinanceToUnits,
     buyerPaidShippingFromOrder,
     estimatedShippingFromOrder,
+    isTiktokShippingEstimated,
     parseOrderFinance,
     parseSignedAmount,
     reconcileBuyerPaidShipping,
@@ -204,11 +206,55 @@ export const processTiktokOrder = internalAction({
                 financeRows.length === 0 &&
                 args.unsettledFinanceJson
             ) {
-                const unsettledPayload: unknown = JSON.parse(
-                    args.unsettledFinanceJson
-                );
-                financeRows = parseOrderFinance(unsettledPayload);
+                try {
+                    financeRows = parseOrderFinance(
+                        JSON.parse(args.unsettledFinanceJson)
+                    );
+                } catch (error: unknown) {
+                    console.error(
+                        JSON.stringify({
+                            operation: "tiktok_unsettled_parse_failed",
+                            orderId: args.orderId,
+                            error: getErrorMessage(error),
+                        })
+                    );
+                }
                 if (financeRows.length > 0) financeStatus = "unsettled";
+            }
+
+            if (financeRows.length === 0) {
+                try {
+                    const createdMs = unixMs(orderRaw.create_time);
+                    const createdUnix = createdMs
+                        ? Math.floor(createdMs / 1000)
+                        : undefined;
+                    const unsettledPayload =
+                        await findTiktokUnsettledTransaction({
+                            accessToken: args.accessToken,
+                            shopCipher: args.shopCipher,
+                            orderId: args.orderId,
+                            searchTimeGe: createdUnix
+                                ? createdUnix - 24 * 60 * 60
+                                : undefined,
+                            searchTimeLt: createdUnix
+                                ? createdUnix + 24 * 60 * 60
+                                : undefined,
+                        });
+                    if (unsettledPayload !== undefined) {
+                        financeRows = parseOrderFinance(unsettledPayload);
+                        if (financeRows.length > 0) {
+                            financeStatus = "unsettled";
+                        }
+                    }
+                } catch (error: unknown) {
+                    console.error(
+                        JSON.stringify({
+                            operation: "tiktok_unsettled_fetch_failed",
+                            orderId: args.orderId,
+                            error: getErrorMessage(error),
+                        })
+                    );
+                }
             }
 
             if (financeRows.length === 0) {
@@ -221,9 +267,11 @@ export const processTiktokOrder = internalAction({
                     sum + share.shipping * lineItems[index].quantity,
                 0
             );
-            const shippingEstimated = financeStatus !== "settled";
-            const usesOrderShippingEstimate =
-                shippingEstimated && financeShippingTotal === 0;
+            const shippingEstimated = isTiktokShippingEstimated(
+                financeStatus,
+                financeShippingTotal
+            );
+            const usesOrderShippingEstimate = shippingEstimated;
             const totalQuantity = lineItems.reduce(
                 (sum, item) => sum + item.quantity,
                 0

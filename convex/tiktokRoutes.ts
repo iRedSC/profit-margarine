@@ -52,7 +52,6 @@ export const tiktokInstall = createOAuthInstallHandler({
             "seller.authorization.info",
             "seller.order.info",
             "seller.finance.info",
-            "seller.fulfillment.basic",
         ].join(" ");
 
         if (isUsTiktokApiBase() && !serviceId) {

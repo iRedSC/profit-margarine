@@ -138,23 +138,8 @@ export const deleteMarketplaceProductsByOrder = internalMutation({
             )
             .collect();
 
-        const productIdsToCheck = new Set<Id<"products">>();
-
         for (const mp of existingMarketplaceProducts) {
-            if (mp.productId) {
-                productIdsToCheck.add(mp.productId);
-            }
             await ctx.db.delete(mp._id);
-        }
-
-        for (const productId of productIdsToCheck) {
-            const remaining = await ctx.db
-                .query("marketplaceProducts")
-                .withIndex("by_product", (q) => q.eq("productId", productId))
-                .first();
-            if (!remaining) {
-                await ctx.db.delete(productId);
-            }
         }
     },
 });
