@@ -12,7 +12,7 @@ const tiktokConfig: MarketplaceConnectConfig = {
         "Click \"Connect TikTok Shop Account\"",
         "You'll be redirected to TikTok to authorize the app",
         "Sign in to your TikTok Shop account if prompted",
-        "Grant Shop Authorized, Order, and Finance permissions (enable Finance in Partner Center first)",
+        "Grant Shop Authorized, Order, Finance, and Fulfillment permissions in Partner Center",
         "You'll be redirected back to sync orders",
     ],
     buttonText: "Connect TikTok Shop Account",
