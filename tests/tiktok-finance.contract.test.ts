@@ -5,8 +5,12 @@ import {
 } from "../convex/lib/orderCosts";
 import {
   allocateFinanceToUnits,
+  buyerPaidShippingFromOrder,
+  estimatedShippingFromOrder,
   parseOrderFinance,
   parseSignedAmount,
+  reconcileBuyerPaidShipping,
+  isTiktokShippingEstimated,
 } from "../convex/tiktok/finance";
 import {
   tokenExpiresAtMs,
@@ -17,6 +21,7 @@ import { tiktokSellerAuthorizeUrl, tiktokApiBase } from "../convex/tiktok/region
 import {
   parseAuthorizedShops,
   parseOrderSearchPage,
+  tiktokString,
 } from "../convex/tiktok/parse";
 import { isEstimatedFee } from "../src/lib/feeUtils";
 
@@ -87,6 +92,93 @@ describe("TikTok token contracts", () => {
 });
 
 describe("TikTok finance contracts", () => {
+  it("uses the US order payment field as the buyer-paid shipping source", () => {
+    expect(
+      buyerPaidShippingFromOrder({
+        payment: {
+          original_shipping_fee: "11.11",
+          shipping_fee: "0",
+          shipping_fee_seller_discount: "11.11",
+        },
+      }),
+    ).toBe(0);
+    expect(
+      buyerPaidShippingFromOrder({ payment_info: { shipping_fee: "5.83" } }),
+    ).toBe(5.83);
+    expect(
+      estimatedShippingFromOrder({
+        payment: { original_shipping_fee: "11.11" },
+      }),
+    ).toBe(11.11);
+  });
+
+  it("reconciles SKU shipping shares to the checkout total", () => {
+    const shares = [
+      {
+        fees: 0,
+        feesBreakdown: [],
+        shipping: 2,
+        shippingBreakdown: [],
+        buyerPaidShipping: 2,
+      },
+      {
+        fees: 0,
+        feesBreakdown: [],
+        shipping: 4,
+        shippingBreakdown: [],
+        buyerPaidShipping: 4,
+      },
+    ];
+
+    expect(reconcileBuyerPaidShipping(shares, [1, 1], 3)).toEqual([1, 2]);
+    expect(reconcileBuyerPaidShipping(shares, [1, 1], 0)).toEqual([0, 0]);
+  });
+
+  it("treats unsettled rows with real label costs as known, not estimated", () => {
+    expect(isTiktokShippingEstimated("settled", 0)).toBe(false);
+    expect(isTiktokShippingEstimated("unsettled", 6.48)).toBe(false);
+    expect(isTiktokShippingEstimated("unsettled", 0)).toBe(true);
+    expect(isTiktokShippingEstimated("estimated", 0)).toBe(true);
+  });
+
+  it("matches numeric and string TikTok order ids", () => {
+    expect(tiktokString(123456789)).toBe("123456789");
+    expect(tiktokString("576932018345678901")).toBe("576932018345678901");
+  });
+
+  it("parses estimated fees and label costs from an unsettled transaction", () => {
+    const [row] = parseOrderFinance({
+      est_fee_tax_amount: "-1.05",
+      est_shipping_cost_amount: "0",
+      fee_tax_breakdown: {
+        fee: { referral_fee_amount: "-1.05" },
+        tax: {
+          sales_tax_amount: "-1.54",
+          sales_tax_payment_amount: "1.54",
+        },
+      },
+      shipping_cost_breakdown: {
+        actual_shipping_fee_amount: "-6.48",
+        customer_paid_shipping_fee_amount: "6.48",
+        shipping_fee_discount_amount: "0",
+        supplementary_component: {
+          fbm_shipping_cost_amount: "-6.48",
+        },
+      },
+    });
+
+    expect(row).toMatchObject({
+      skuId: "",
+      fees: 1.05,
+      shipping: 6.48,
+      buyerPaidShipping: 6.48,
+    });
+    expect(row.feesBreakdown).toEqual([["referral_fee", 1.05]]);
+    expect(row.shippingBreakdown).toEqual([
+      ["actual_shipping_fee", 6.48],
+    ]);
+  });
+
   it("parses SKU statement transactions into seller fees and net shipping", () => {
     const [row] = parseOrderFinance(statementPayload);
 

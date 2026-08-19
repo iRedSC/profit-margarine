@@ -33,6 +33,12 @@ function mapMarketplaceProductRow(
         shipping_breakdown: mp.shipping_breakdown,
         shippingPercentage: mp.shippingPercentage,
         buyerPaidShipping: mp.buyerPaidShipping,
+        ...(mp.tiktokFinanceStatus
+            ? { tiktokFinanceStatus: mp.tiktokFinanceStatus }
+            : {}),
+        ...(mp.shippingEstimated
+            ? { shippingEstimated: true }
+            : {}),
         orderDate: mp.orderDate,
         fulfillmentDate: mp.fulfillmentDate,
         orderId: resolveOrderId(mp),
@@ -305,6 +311,34 @@ export const checkOrderExists = internalQuery({
         return productsWithOrderId.some(
             (p) => p.userId === args.userId && p.orderDate === args.orderDate
         );
+    },
+});
+
+export const getTiktokOrderFinanceState = internalQuery({
+    args: {
+        userId: v.id("users"),
+        orderId: v.string(),
+        orderDate: v.number(),
+    },
+    handler: async (ctx, args) => {
+        const rows = await ctx.db
+            .query("marketplaceProducts")
+            .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
+            .filter((q) =>
+                q.and(
+                    q.eq(q.field("userId"), args.userId),
+                    q.eq(q.field("orderDate"), args.orderDate),
+                    q.eq(q.field("marketplace"), "TikTok")
+                )
+            )
+            .collect();
+
+        return {
+            exists: rows.length > 0,
+            needsFinanceRefresh: rows.some(
+                (row) => row.tiktokFinanceStatus !== "settled"
+            ),
+        };
     },
 });
 

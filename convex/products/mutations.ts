@@ -6,6 +6,7 @@ import {
     marketplaceLineItemFields,
     productMarketplaceValidator,
     rawFinancialEventsStatusValidator,
+    tiktokFinanceStatusValidator,
 } from "../lib/validators";
 
 export const addProduct = mutation({
@@ -137,23 +138,8 @@ export const deleteMarketplaceProductsByOrder = internalMutation({
             )
             .collect();
 
-        const productIdsToCheck = new Set<Id<"products">>();
-
         for (const mp of existingMarketplaceProducts) {
-            if (mp.productId) {
-                productIdsToCheck.add(mp.productId);
-            }
             await ctx.db.delete(mp._id);
-        }
-
-        for (const productId of productIdsToCheck) {
-            const remaining = await ctx.db
-                .query("marketplaceProducts")
-                .withIndex("by_product", (q) => q.eq("productId", productId))
-                .first();
-            if (!remaining) {
-                await ctx.db.delete(productId);
-            }
         }
     },
 });
@@ -182,6 +168,8 @@ const upsertMarketplaceProductArgs = {
     userId: v.id("users"),
     marketplace: productMarketplaceValidator,
     ...marketplaceLineItemFields,
+    tiktokFinanceStatus: v.optional(tiktokFinanceStatusValidator),
+    shippingEstimated: v.optional(v.boolean()),
     updateExisting: v.optional(v.boolean()),
 };
 
@@ -283,7 +271,11 @@ async function upsertMarketplaceProductHandler(
     ctx: MutationCtx,
     args: ObjectType<typeof upsertMarketplaceProductArgs>
 ) {
-    if (args.shipping === 0 && !args.fulfillmentTimestamp) {
+    if (
+        args.shipping === 0 &&
+        !args.fulfillmentTimestamp &&
+        args.marketplace !== "TikTok"
+    ) {
         return;
     }
 
@@ -335,6 +327,8 @@ async function upsertMarketplaceProductHandler(
                     shipping_breakdown: args.shipping_breakdown,
                     shippingPercentage: args.shippingPercentage,
                     buyerPaidShipping: args.buyerPaidShipping,
+                    tiktokFinanceStatus: args.tiktokFinanceStatus,
+                    shippingEstimated: args.shippingEstimated,
                     fulfillmentDate: args.fulfillmentTimestamp,
                     name: args.name,
                 });
@@ -364,6 +358,8 @@ async function upsertMarketplaceProductHandler(
         shipping_breakdown: args.shipping_breakdown,
         shippingPercentage: args.shippingPercentage,
         buyerPaidShipping: args.buyerPaidShipping,
+        tiktokFinanceStatus: args.tiktokFinanceStatus,
+        shippingEstimated: args.shippingEstimated,
         orderDate: args.orderTimestamp,
         fulfillmentDate: args.fulfillmentTimestamp,
         userId: args.userId,

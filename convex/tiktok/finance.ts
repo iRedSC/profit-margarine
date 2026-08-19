@@ -15,6 +15,15 @@ export type SkuFinance = {
     buyerPaidShipping: number;
 };
 
+export type TiktokFinanceStatus = "estimated" | "unsettled" | "settled";
+
+export function isTiktokShippingEstimated(
+    financeStatus: TiktokFinanceStatus,
+    financeShippingTotal: number
+): boolean {
+    return financeStatus !== "settled" && financeShippingTotal === 0;
+}
+
 const SKIP_FEE_KEYS = new Set([
     "affiliate_commission_amount_before_pit",
     "affiliate_commission_before_pit_amount",
@@ -50,6 +59,27 @@ export function parseSignedAmount(value: unknown): number {
         return parseSignedAmount(value.amount);
     }
     return 0;
+}
+
+function paymentFromOrder(order: unknown): Record<string, unknown> | undefined {
+    if (!isRecord(order)) return undefined;
+    return isRecord(order.payment)
+        ? order.payment
+        : isRecord(order.payment_info)
+          ? order.payment_info
+          : undefined;
+}
+
+export function buyerPaidShippingFromOrder(order: unknown): number | undefined {
+    const payment = paymentFromOrder(order);
+    if (!payment || !("shipping_fee" in payment)) return undefined;
+    return Math.max(0, parseSignedAmount(payment.shipping_fee));
+}
+
+export function estimatedShippingFromOrder(order: unknown): number | undefined {
+    const payment = paymentFromOrder(order);
+    if (!payment || !("original_shipping_fee" in payment)) return undefined;
+    return Math.max(0, parseSignedAmount(payment.original_shipping_fee));
 }
 
 function feeLabel(key: string): string {
@@ -199,6 +229,32 @@ export type LineItemFinanceShare = {
     shippingBreakdown: CostBreakdown;
     buyerPaidShipping: number;
 };
+
+export function reconcileBuyerPaidShipping(
+    shares: LineItemFinanceShare[],
+    quantities: number[],
+    orderTotal: number | undefined
+): number[] {
+    if (orderTotal === undefined) {
+        return shares.map((share) => share.buyerPaidShipping);
+    }
+
+    const financeTotal = shares.reduce(
+        (sum, share, index) =>
+            sum + share.buyerPaidShipping * (quantities[index] ?? 0),
+        0
+    );
+    if (financeTotal > 0) {
+        const scale = orderTotal / financeTotal;
+        return shares.map((share) => share.buyerPaidShipping * scale);
+    }
+
+    const totalQuantity = quantities.reduce(
+        (sum, quantity) => sum + quantity,
+        0
+    );
+    return shares.map(() => orderTotal / Math.max(1, totalQuantity));
+}
 
 function scaleBreakdown(
     breakdown: CostBreakdown,

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -14,6 +16,7 @@ type ShopifyConnectProps = {
 export function ShopifyConnect({ isConnected }: ShopifyConnectProps) {
   const [shopDomain, setShopDomain] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
+  const connectedShopDomain = useQuery(api.shopifyMutations.getShopDomain);
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,6 +56,8 @@ export function ShopifyConnect({ isConnected }: ShopifyConnectProps) {
     name: "Shopify",
     description: "Connect your Shopify store to automatically sync orders and analyze profitability.",
     installUrl: "/shopify/install",
+    installParams: connectedShopDomain ? { shop: connectedShopDomain } : undefined,
+    reconnectDisabled: connectedShopDomain === undefined,
     setupInstructions: [
       "Enter your Shopify store domain above",
       "Click \"Connect Shopify Store\"",

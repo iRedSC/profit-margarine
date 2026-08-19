@@ -18,6 +18,12 @@ export const breakdownValidator = v.array(
     v.array(v.union(v.string(), v.number()))
 );
 
+export const tiktokFinanceStatusValidator = v.union(
+    v.literal("estimated"),
+    v.literal("unsettled"),
+    v.literal("settled")
+);
+
 export const rawFinancialEventsStatusValidator = v.object({
     financeStatusClassification: v.optional(v.string()),
     suggestFinancesV2024Fallback: v.optional(v.boolean()),

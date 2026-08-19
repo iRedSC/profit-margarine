@@ -364,15 +364,15 @@ export function StatsDashboard() {
   const topLoss = useMemo(() => buildTopLossItems(enriched), [enriched]);
 
   const summary = useMemo(() => {
-    const withCost = enriched.filter((p) => p.hasCost);
-    const revenue = withCost.reduce((sum, p) => sum + p.price, 0);
-    const profit = withCost.reduce((sum, p) => sum + p.profit, 0);
-    const lossCount = withCost.filter((p) => p.profit < 0).length;
+    const included = enriched.filter((product) => !product.isExcluded);
+    const revenue = included.reduce((sum, p) => sum + p.price, 0);
+    const profit = included.reduce((sum, p) => sum + p.profit, 0);
+    const lossCount = included.filter((p) => p.profit < 0).length;
     return {
       revenue,
       profit,
       margin: revenue > 0 ? (profit / revenue) * 100 : 0,
-      orders: enriched.length,
+      orders: included.length,
       lossCount,
     };
   }, [enriched]);

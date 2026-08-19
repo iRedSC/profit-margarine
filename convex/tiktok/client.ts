@@ -5,7 +5,11 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { signTiktokRequest } from "./sign";
 import { isRecord } from "./token";
-import { parseAuthorizedShops, parseOrderSearchPage } from "./parse";
+import {
+    parseAuthorizedShops,
+    parseOrderSearchPage,
+    tiktokString,
+} from "./parse";
 import { tiktokApiBase } from "./region";
 
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -181,6 +185,74 @@ export async function getOrderStatementTransactions(args: {
         accessToken: args.accessToken,
         query: { shop_cipher: args.shopCipher },
     });
+}
+
+export type TiktokUnsettledPage = {
+    transactions: unknown[];
+    nextPageToken?: string;
+};
+
+export async function getTiktokUnsettledTransactions(args: {
+    accessToken: string;
+    shopCipher: string;
+    pageToken?: string;
+    searchTimeGe?: number;
+    searchTimeLt?: number;
+}): Promise<TiktokUnsettledPage> {
+    const query: Record<string, string> = {
+        shop_cipher: args.shopCipher,
+        page_size: "100",
+        sort_field: "order_create_time",
+        sort_order: "DESC",
+    };
+    if (args.pageToken) query.page_token = args.pageToken;
+    if (args.searchTimeGe) query.search_time_ge = String(args.searchTimeGe);
+    if (args.searchTimeLt) query.search_time_lt = String(args.searchTimeLt);
+
+    const data = await tiktokFetch({
+        path: "/finance/202507/orders/unsettled",
+        accessToken: args.accessToken,
+        query,
+    });
+    if (!isRecord(data)) return { transactions: [] };
+
+    return {
+        transactions: Array.isArray(data.transactions)
+            ? data.transactions
+            : [],
+        nextPageToken:
+            typeof data.next_page_token === "string" && data.next_page_token
+                ? data.next_page_token
+                : undefined,
+    };
+}
+
+export async function findTiktokUnsettledTransaction(args: {
+    accessToken: string;
+    shopCipher: string;
+    orderId: string;
+    searchTimeGe?: number;
+    searchTimeLt?: number;
+}): Promise<unknown> {
+    let pageToken: string | undefined;
+    do {
+        const page = await getTiktokUnsettledTransactions({
+            accessToken: args.accessToken,
+            shopCipher: args.shopCipher,
+            pageToken,
+            searchTimeGe: args.searchTimeGe,
+            searchTimeLt: args.searchTimeLt,
+        });
+        const match = page.transactions.find(
+            (transaction) =>
+                isRecord(transaction) &&
+                tiktokString(transaction.order_id) === args.orderId
+        );
+        if (match) return match;
+        pageToken = page.nextPageToken;
+    } while (pageToken);
+
+    return undefined;
 }
 
 export async function getTiktokApiContext(

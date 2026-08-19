@@ -6,13 +6,19 @@ import { internal } from "../_generated/api";
 import { getErrorMessage } from "../marketplaceUtils";
 import { isRecord } from "./token";
 import {
+    findTiktokUnsettledTransaction,
     getOrderStatementTransactions,
     getTiktokOrderDetails,
 } from "./client";
 import {
     allocateFinanceToUnits,
+    buyerPaidShippingFromOrder,
+    estimatedShippingFromOrder,
+    isTiktokShippingEstimated,
     parseOrderFinance,
     parseSignedAmount,
+    reconcileBuyerPaidShipping,
+    type TiktokFinanceStatus,
 } from "./finance";
 
 const SKIP_ORDER_STATUSES = new Set([
@@ -53,6 +59,7 @@ export const processTiktokOrder = internalAction({
         orderId: v.string(),
         accessToken: v.string(),
         shopCipher: v.string(),
+        unsettledFinanceJson: v.optional(v.string()),
         updateExisting: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
@@ -102,12 +109,10 @@ export const processTiktokOrder = internalAction({
             const fulfillmentTimestamp =
                 unixMs(orderRaw.delivery_time) ?? unixMs(orderRaw.rts_time);
 
-            const payment = isRecord(orderRaw.payment_info)
-                ? orderRaw.payment_info
-                : {};
-            const buyerPaidShippingTotal = parseSignedAmount(
-                payment.shipping_fee
-            );
+            const buyerPaidShippingTotal =
+                buyerPaidShippingFromOrder(orderRaw);
+            const estimatedShippingTotal =
+                estimatedShippingFromOrder(orderRaw) ?? 0;
 
             const rawLineItems = Array.isArray(orderRaw.line_items)
                 ? orderRaw.line_items
@@ -156,8 +161,8 @@ export const processTiktokOrder = internalAction({
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            const orderExists = await ctx.runQuery(
-                internal.products.checkOrderExists,
+            const orderState = await ctx.runQuery(
+                internal.products.getTiktokOrderFinanceState,
                 {
                     userId: args.userId,
                     orderId: args.orderId,
@@ -165,7 +170,11 @@ export const processTiktokOrder = internalAction({
                 }
             );
 
-            if (orderExists && !args.updateExisting) {
+            if (
+                orderState.exists &&
+                !args.updateExisting &&
+                !orderState.needsFinanceRefresh
+            ) {
                 log.skipped = true;
                 log.skippedReason = "Order already exists";
                 console.error(JSON.stringify(log));
@@ -173,6 +182,7 @@ export const processTiktokOrder = internalAction({
             }
 
             let financeRows: ReturnType<typeof parseOrderFinance> = [];
+            let financeStatus: TiktokFinanceStatus = "estimated";
             try {
                 const financePayload = await getOrderStatementTransactions({
                     accessToken: args.accessToken,
@@ -180,6 +190,7 @@ export const processTiktokOrder = internalAction({
                     orderId: args.orderId,
                 });
                 financeRows = parseOrderFinance(financePayload);
+                if (financeRows.length > 0) financeStatus = "settled";
             } catch (error: unknown) {
                 console.error(
                     JSON.stringify({
@@ -191,22 +202,99 @@ export const processTiktokOrder = internalAction({
                 financeRows = [];
             }
 
+            if (
+                financeRows.length === 0 &&
+                args.unsettledFinanceJson
+            ) {
+                try {
+                    financeRows = parseOrderFinance(
+                        JSON.parse(args.unsettledFinanceJson)
+                    );
+                } catch (error: unknown) {
+                    console.error(
+                        JSON.stringify({
+                            operation: "tiktok_unsettled_parse_failed",
+                            orderId: args.orderId,
+                            error: getErrorMessage(error),
+                        })
+                    );
+                }
+                if (financeRows.length > 0) financeStatus = "unsettled";
+            }
+
+            if (financeRows.length === 0) {
+                try {
+                    const createdMs = unixMs(orderRaw.create_time);
+                    const createdUnix = createdMs
+                        ? Math.floor(createdMs / 1000)
+                        : undefined;
+                    const unsettledPayload =
+                        await findTiktokUnsettledTransaction({
+                            accessToken: args.accessToken,
+                            shopCipher: args.shopCipher,
+                            orderId: args.orderId,
+                            searchTimeGe: createdUnix
+                                ? createdUnix - 24 * 60 * 60
+                                : undefined,
+                            searchTimeLt: createdUnix
+                                ? createdUnix + 24 * 60 * 60
+                                : undefined,
+                        });
+                    if (unsettledPayload !== undefined) {
+                        financeRows = parseOrderFinance(unsettledPayload);
+                        if (financeRows.length > 0) {
+                            financeStatus = "unsettled";
+                        }
+                    }
+                } catch (error: unknown) {
+                    console.error(
+                        JSON.stringify({
+                            operation: "tiktok_unsettled_fetch_failed",
+                            orderId: args.orderId,
+                            error: getErrorMessage(error),
+                        })
+                    );
+                }
+            }
+
             if (financeRows.length === 0) {
                 log.usedEstimatedFees = true;
             }
 
             const shares = allocateFinanceToUnits(lineItems, financeRows);
-            const totalQuantity = lineItems.reduce(
-                (sum, item) => sum + item.quantity,
-                0
-            );
-            const totalOrderShipping = shares.reduce(
+            const financeShippingTotal = shares.reduce(
                 (sum, share, index) =>
                     sum + share.shipping * lineItems[index].quantity,
                 0
             );
+            const shippingEstimated = isTiktokShippingEstimated(
+                financeStatus,
+                financeShippingTotal
+            );
+            const usesOrderShippingEstimate = shippingEstimated;
+            const totalQuantity = lineItems.reduce(
+                (sum, item) => sum + item.quantity,
+                0
+            );
+            const estimatedShippingPerUnit =
+                estimatedShippingTotal / Math.max(1, totalQuantity);
+            const shippingShares = shares.map((share) =>
+                usesOrderShippingEstimate
+                    ? estimatedShippingPerUnit
+                    : share.shipping
+            );
+            const totalOrderShipping = shippingShares.reduce(
+                (sum, shipping, index) =>
+                    sum + shipping * lineItems[index].quantity,
+                0
+            );
+            const buyerPaidShippingShares = reconcileBuyerPaidShipping(
+                shares,
+                lineItems.map((item) => item.quantity),
+                buyerPaidShippingTotal
+            );
 
-            if (args.updateExisting && orderExists) {
+            if (orderState.exists) {
                 await ctx.runMutation(
                     internal.products.deleteMarketplaceProductsByOrder,
                     {
@@ -220,14 +308,11 @@ export const processTiktokOrder = internalAction({
             for (let i = 0; i < lineItems.length; i++) {
                 const item = lineItems[i];
                 const share = shares[i];
-                const buyerPaidFromFinance = share.buyerPaidShipping;
-                const buyerPaidShipping =
-                    buyerPaidFromFinance > 0
-                        ? buyerPaidFromFinance
-                        : buyerPaidShippingTotal / Math.max(1, totalQuantity);
+                const shipping = shippingShares[i];
+                const buyerPaidShipping = buyerPaidShippingShares[i];
                 const shippingPercentage =
                     totalOrderShipping > 0
-                        ? (share.shipping / totalOrderShipping) * 100
+                        ? (shipping / totalOrderShipping) * 100
                         : 0;
 
                 for (let unit = 0; unit < item.quantity; unit++) {
@@ -241,13 +326,22 @@ export const processTiktokOrder = internalAction({
                             price: item.price,
                             fees: share.fees,
                             fees_breakdown: share.feesBreakdown,
-                            shipping: share.shipping,
+                            shipping,
                             shipping_breakdown:
-                                share.shippingBreakdown.length > 0
+                                usesOrderShippingEstimate
+                                    ? [
+                                          [
+                                              "TikTok shipping (Estimated)",
+                                              shipping,
+                                          ],
+                                      ]
+                                    : share.shippingBreakdown.length > 0
                                     ? share.shippingBreakdown
                                     : undefined,
                             shippingPercentage,
                             buyerPaidShipping,
+                            tiktokFinanceStatus: financeStatus,
+                            shippingEstimated,
                             orderTimestamp,
                             fulfillmentTimestamp,
                             orderId: args.orderId,

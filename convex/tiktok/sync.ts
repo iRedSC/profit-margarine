@@ -12,7 +12,13 @@ import {
     isInactiveSyncError,
 } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
-import { getTiktokApiContext, searchTiktokOrders } from "./client";
+import {
+    getTiktokApiContext,
+    getTiktokUnsettledTransactions,
+    searchTiktokOrders,
+} from "./client";
+import { isRecord } from "./token";
+import { tiktokString } from "./parse";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -131,11 +137,50 @@ export const syncTiktokOrders = internalAction({
             const uniqueOrders = [...ordersByShop.entries()].map(
                 ([orderId, shopCipher]) => ({ orderId, shopCipher })
             );
+            const unsettledByOrder = new Map<string, unknown>();
+            for (const shop of api.shops) {
+                try {
+                    let pageToken: string | undefined;
+                    do {
+                        const page = await getTiktokUnsettledTransactions({
+                            accessToken: api.accessToken,
+                            shopCipher: shop.cipher,
+                            pageToken,
+                            searchTimeGe: Math.floor(
+                                startDateObj.getTime() / 1000
+                            ),
+                            searchTimeLt: Math.floor(
+                                endDateObj.getTime() / 1000
+                            ),
+                        });
+                        for (const transaction of page.transactions) {
+                            if (!isRecord(transaction)) continue;
+                            const orderId = tiktokString(transaction.order_id);
+                            if (orderId) {
+                                unsettledByOrder.set(orderId, transaction);
+                            }
+                        }
+                        pageToken = page.nextPageToken;
+                    } while (pageToken);
+                } catch (error: unknown) {
+                    console.error(
+                        JSON.stringify({
+                            operation: "tiktok_unsettled_fetch_failed",
+                            shopId: shop.id,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                        })
+                    );
+                }
+            }
             console.error(
                 JSON.stringify({
                     operation: "tiktok_sync_search",
                     orderCount: uniqueOrders.length,
                     batchCount: batches.length,
+                    unsettledFinanceCount: unsettledByOrder.size,
                 })
             );
             let processedCount = 0;
@@ -151,6 +196,13 @@ export const syncTiktokOrders = internalAction({
                             orderId: order.orderId,
                             accessToken: api.accessToken,
                             shopCipher: order.shopCipher,
+                            unsettledFinanceJson: unsettledByOrder.has(
+                                order.orderId
+                            )
+                                ? JSON.stringify(
+                                      unsettledByOrder.get(order.orderId)
+                                  )
+                                : undefined,
                             updateExisting: args.updateExisting ?? false,
                         });
                         processedCount++;

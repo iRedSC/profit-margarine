@@ -5,6 +5,7 @@ type ShippingBreakdownProps = {
     shipping_breakdown?: Array<Array<string | number>>;
     buyerPaidShipping?: number;
     shippingPercentage?: number;
+    isEstimated?: boolean;
 };
 
 function ShippingPercentageLabel({
@@ -31,6 +32,7 @@ export function ShippingBreakdown({
     shipping_breakdown,
     buyerPaidShipping,
     shippingPercentage,
+    isEstimated,
 }: ShippingBreakdownProps) {
     const netShipping =
         buyerPaidShipping !== undefined
@@ -82,7 +84,7 @@ export function ShippingBreakdown({
                     totalAmount={showTotal ? netShipping : undefined}
                     widthClassName="w-56"
                 >
-                    ${netShipping.toFixed(2)}
+                    ${netShipping.toFixed(2)}{isEstimated ? "*" : ""}
                 </BreakdownTooltip>
                 <ShippingPercentageLabel shippingPercentage={shippingPercentage} />
             </div>
@@ -91,7 +93,7 @@ export function ShippingBreakdown({
 
     return (
         <div className="flex flex-col items-end">
-            <span>${netShipping.toFixed(2)}</span>
+            <span>${netShipping.toFixed(2)}{isEstimated ? "*" : ""}</span>
             <ShippingPercentageLabel shippingPercentage={shippingPercentage} />
         </div>
     );

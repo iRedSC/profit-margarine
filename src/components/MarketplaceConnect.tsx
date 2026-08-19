@@ -2,7 +2,7 @@ import { ReactNode, useState } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, RefreshCw } from "lucide-react";
 import { buildInstallUrl } from "../lib/urlUtils";
 
 export interface MarketplaceConnectConfig {
@@ -10,6 +10,8 @@ export interface MarketplaceConnectConfig {
     description: string;
     connectedDescription?: string;
     installUrl: string;
+    installParams?: Record<string, string>;
+    reconnectDisabled?: boolean;
     setupInstructions: string[];
     configWarning?: ReactNode;
     customForm?: ReactNode;
@@ -30,6 +32,7 @@ export function MarketplaceConnect({ isConnected, config }: MarketplaceConnectPr
         
         // Redirect to the backend install endpoint which handles the OAuth flow
         const url = buildInstallUrl(config.installUrl, {
+            ...config.installParams,
             return_to: window.location.origin,
         });
         window.location.href = url;
@@ -64,7 +67,28 @@ export function MarketplaceConnect({ isConnected, config }: MarketplaceConnectPr
                     </Badge>
                 </div>
             </CardHeader>
-            {!isConnected && (
+            {isConnected ? (
+                <CardContent>
+                    <Button
+                        onClick={handleConnect}
+                        disabled={isConnecting || config.reconnectDisabled}
+                        variant="outline"
+                        className="w-full"
+                    >
+                        {isConnecting ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Reconnecting...
+                            </>
+                        ) : (
+                            <>
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Reconnect {config.name}
+                            </>
+                        )}
+                    </Button>
+                </CardContent>
+            ) : (
                 <CardContent className="space-y-4">
                     {config.customForm ? (
                         config.customForm

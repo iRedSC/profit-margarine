@@ -6,6 +6,15 @@ export type ShippingAmounts = {
   buyerPaidShipping?: number;
 };
 
+export type OverviewEligibility = {
+  cost?: number;
+  shippingEstimated?: boolean;
+};
+
+export function isOverviewExcluded(product: OverviewEligibility): boolean {
+  return product.cost === undefined || product.shippingEstimated === true;
+}
+
 export function getNetShipping(product: ShippingAmounts): number {
   return product.shipping - (product.buyerPaidShipping ?? 0);
 }
@@ -35,7 +44,7 @@ export function getOrderUrl(marketplace: string, orderId: string | undefined, sh
       if (!shopDomain) return null;
       return `https://${shopDomain}/admin/orders/${orderId}`;
     case "TikTok":
-      return `https://seller-us.tiktok.com/order/detail/${orderId}`;
+      return `https://seller-us.tiktok.com/order/detail?order_no=${encodeURIComponent(orderId)}&shop_region=US`;
     default:
       return null;
   }
