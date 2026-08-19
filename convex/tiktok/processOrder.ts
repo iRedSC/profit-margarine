@@ -12,6 +12,7 @@ import {
 import {
     allocateFinanceToUnits,
     buyerPaidShippingFromOrder,
+    estimatedShippingFromOrder,
     parseOrderFinance,
     parseSignedAmount,
     reconcileBuyerPaidShipping,
@@ -108,6 +109,8 @@ export const processTiktokOrder = internalAction({
 
             const buyerPaidShippingTotal =
                 buyerPaidShippingFromOrder(orderRaw);
+            const estimatedShippingTotal =
+                estimatedShippingFromOrder(orderRaw) ?? 0;
 
             const rawLineItems = Array.isArray(orderRaw.line_items)
                 ? orderRaw.line_items
@@ -213,9 +216,28 @@ export const processTiktokOrder = internalAction({
             }
 
             const shares = allocateFinanceToUnits(lineItems, financeRows);
-            const totalOrderShipping = shares.reduce(
+            const financeShippingTotal = shares.reduce(
                 (sum, share, index) =>
                     sum + share.shipping * lineItems[index].quantity,
+                0
+            );
+            const shippingEstimated = financeStatus !== "settled";
+            const usesOrderShippingEstimate =
+                shippingEstimated && financeShippingTotal === 0;
+            const totalQuantity = lineItems.reduce(
+                (sum, item) => sum + item.quantity,
+                0
+            );
+            const estimatedShippingPerUnit =
+                estimatedShippingTotal / Math.max(1, totalQuantity);
+            const shippingShares = shares.map((share) =>
+                usesOrderShippingEstimate
+                    ? estimatedShippingPerUnit
+                    : share.shipping
+            );
+            const totalOrderShipping = shippingShares.reduce(
+                (sum, shipping, index) =>
+                    sum + shipping * lineItems[index].quantity,
                 0
             );
             const buyerPaidShippingShares = reconcileBuyerPaidShipping(
@@ -238,10 +260,11 @@ export const processTiktokOrder = internalAction({
             for (let i = 0; i < lineItems.length; i++) {
                 const item = lineItems[i];
                 const share = shares[i];
+                const shipping = shippingShares[i];
                 const buyerPaidShipping = buyerPaidShippingShares[i];
                 const shippingPercentage =
                     totalOrderShipping > 0
-                        ? (share.shipping / totalOrderShipping) * 100
+                        ? (shipping / totalOrderShipping) * 100
                         : 0;
 
                 for (let unit = 0; unit < item.quantity; unit++) {
@@ -255,14 +278,22 @@ export const processTiktokOrder = internalAction({
                             price: item.price,
                             fees: share.fees,
                             fees_breakdown: share.feesBreakdown,
-                            shipping: share.shipping,
+                            shipping,
                             shipping_breakdown:
-                                share.shippingBreakdown.length > 0
+                                usesOrderShippingEstimate
+                                    ? [
+                                          [
+                                              "TikTok shipping (Estimated)",
+                                              shipping,
+                                          ],
+                                      ]
+                                    : share.shippingBreakdown.length > 0
                                     ? share.shippingBreakdown
                                     : undefined,
                             shippingPercentage,
                             buyerPaidShipping,
                             tiktokFinanceStatus: financeStatus,
+                            shippingEstimated,
                             orderTimestamp,
                             fulfillmentTimestamp,
                             orderId: args.orderId,

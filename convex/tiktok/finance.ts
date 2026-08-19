@@ -54,15 +54,25 @@ export function parseSignedAmount(value: unknown): number {
     return 0;
 }
 
-export function buyerPaidShippingFromOrder(order: unknown): number | undefined {
+function paymentFromOrder(order: unknown): Record<string, unknown> | undefined {
     if (!isRecord(order)) return undefined;
-    const payment = isRecord(order.payment)
+    return isRecord(order.payment)
         ? order.payment
         : isRecord(order.payment_info)
           ? order.payment_info
           : undefined;
+}
+
+export function buyerPaidShippingFromOrder(order: unknown): number | undefined {
+    const payment = paymentFromOrder(order);
     if (!payment || !("shipping_fee" in payment)) return undefined;
     return Math.max(0, parseSignedAmount(payment.shipping_fee));
+}
+
+export function estimatedShippingFromOrder(order: unknown): number | undefined {
+    const payment = paymentFromOrder(order);
+    if (!payment || !("original_shipping_fee" in payment)) return undefined;
+    return Math.max(0, parseSignedAmount(payment.original_shipping_fee));
 }
 
 function feeLabel(key: string): string {

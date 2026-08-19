@@ -36,6 +36,9 @@ function mapMarketplaceProductRow(
         ...(mp.tiktokFinanceStatus
             ? { tiktokFinanceStatus: mp.tiktokFinanceStatus }
             : {}),
+        ...(mp.shippingEstimated
+            ? { shippingEstimated: true }
+            : {}),
         orderDate: mp.orderDate,
         fulfillmentDate: mp.fulfillmentDate,
         orderId: resolveOrderId(mp),

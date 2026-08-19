@@ -64,8 +64,8 @@ export function ProductTableRow({
     const hasZeroShipping = product.shipping === 0;
     const hasPendingShipping =
         product.marketplace === "TikTok" &&
-        product.tiktokFinanceStatus !== "settled" &&
-        hasZeroShipping;
+        product.tiktokFinanceStatus !== "settled";
+    const isExcluded = !hasCost || product.shippingEstimated === true;
     const truncatedName =
         product.name && product.name.length > 30
             ? product.name.substring(0, 30) + "..."
@@ -93,10 +93,10 @@ export function ProductTableRow({
                 className={`border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted ${
                     onRowClick ? "cursor-pointer" : ""
                 } ${
-                    hasZeroShipping
-                        ? "bg-destructive/10 border-destructive/30"
-                        : !hasCost
-                          ? "bg-muted/30"
+                    isExcluded
+                        ? "bg-muted/60 border-muted-foreground/20"
+                        : hasZeroShipping
+                          ? "bg-destructive/10 border-destructive/30"
                           : isDubious
                             ? "bg-warning/5"
                             : !isProfitable
@@ -196,24 +196,24 @@ export function ProductTableRow({
                         shipping_breakdown={product.shipping_breakdown}
                         buyerPaidShipping={product.buyerPaidShipping}
                         shippingPercentage={product.shippingPercentage}
-                        isPending={hasPendingShipping}
+                        isEstimated={product.shippingEstimated}
                     />
                 </td>
                 <td
-                    className={`px-3 py-2 align-middle text-right text-sm font-semibold ${hasZeroShipping ? "blur-sm" : !hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
+                    className={`px-3 py-2 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
                 >
-                    ${profit.toFixed(2)}
+                    ${profit.toFixed(2)}{product.shippingEstimated ? "*" : ""}
                 </td>
                 <td
-                    className={`px-3 py-2 align-middle text-right text-sm font-semibold ${hasZeroShipping ? "blur-sm" : !hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
+                    className={`px-3 py-2 align-middle text-right text-sm font-semibold ${!hasCost ? "blur-sm" : isDubious ? "text-warning" : isProfitable ? "text-success" : "text-destructive"}`}
                 >
-                    {margin.toFixed(1)}%
+                    {margin.toFixed(1)}%{product.shippingEstimated ? "*" : ""}
                 </td>
                 <td className="px-3 py-2 align-middle text-center text-sm">
                     {hasPendingShipping ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning">
                             <AlertCircle className="h-3 w-3 mr-1" />
-                            Pending shipping
+                            Pending
                         </span>
                     ) : hasZeroShipping ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive">

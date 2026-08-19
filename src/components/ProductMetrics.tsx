@@ -2,6 +2,7 @@ import {
     calculateProfit,
     calculateMargin,
     formatCurrency,
+    isOverviewExcluded,
 } from "../lib/productUtils";
 import { Product } from "../types/product";
 
@@ -19,26 +20,26 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
                 : p.shipping,
     }));
 
-    const productsWithCost = productsWithNetShipping.filter(
-        (p) => p.cost !== undefined && p.shipping !== 0
+    const includedProducts = productsWithNetShipping.filter(
+        (product) => !isOverviewExcluded(product)
     );
-    const totalGross = productsWithCost.reduce((sum, p) => sum + p.price, 0);
-    const totalCost = productsWithCost.reduce(
+    const totalGross = includedProducts.reduce((sum, p) => sum + p.price, 0);
+    const totalCost = includedProducts.reduce(
         (sum, p) => sum + (p.cost || 0),
         0
     );
-    const totalFees = productsWithCost.reduce((sum, p) => sum + p.fees, 0);
-    const totalShipping = productsWithCost.reduce(
+    const totalFees = includedProducts.reduce((sum, p) => sum + p.fees, 0);
+    const totalShipping = includedProducts.reduce(
         (sum, p) => sum + p.netShipping,
         0
     );
-    const totalProfit = productsWithCost.reduce(
+    const totalProfit = includedProducts.reduce(
         (sum, p) =>
             sum + calculateProfit(p.price, p.cost, p.fees, p.netShipping),
         0
     );
     const averageProfit =
-        productsWithCost.length > 0 ? totalProfit / productsWithCost.length : 0;
+        includedProducts.length > 0 ? totalProfit / includedProducts.length : 0;
     const averageMargin = totalGross > 0 ? (totalProfit / totalGross) * 100 : 0;
     const costPercentage = totalGross > 0 ? (totalCost / totalGross) * 100 : 0;
     const feesPercentage = totalGross > 0 ? (totalFees / totalGross) * 100 : 0;
@@ -49,10 +50,11 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
     const rowsWithoutCost = filteredProducts.filter(
         (p) => p.cost === undefined
     ).length;
-    const unprofitableRows = productsWithCost.filter(
+    const excludedRows = filteredProducts.filter(isOverviewExcluded).length;
+    const unprofitableRows = includedProducts.filter(
         (p) => calculateProfit(p.price, p.cost, p.fees, p.netShipping) < 0
     ).length;
-    const barelyProfitableRows = productsWithCost.filter((p) => {
+    const barelyProfitableRows = includedProducts.filter((p) => {
         const profit = calculateProfit(p.price, p.cost, p.fees, p.netShipping);
         const margin = calculateMargin(p.price, p.cost, p.fees, p.netShipping);
         return profit > 0 && (margin < 5 || profit < 3);
@@ -69,7 +71,17 @@ export function ProductMetrics({ filteredProducts }: ProductMetricsProps) {
 
     return (
         <div className="rounded-lg border bg-card p-6">
-            <h2 className="text-2xl font-bold mb-6">Overview</h2>
+            <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-2xl font-bold">
+                    Overview{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                        ({excludedRows} excluded)
+                    </span>
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                    *estimation, excluded from overview.
+                </p>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 <div className="rounded-lg p-4 border bg-info/5 border-info/30">
                     <div className="text-sm font-medium text-muted-foreground mb-1">

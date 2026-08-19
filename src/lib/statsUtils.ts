@@ -2,6 +2,7 @@ import {
   calculateMargin,
   calculateProfit,
   getNetShipping,
+  isOverviewExcluded,
 } from "./productUtils";
 import { Product } from "../types/product";
 
@@ -12,6 +13,7 @@ export type EnrichedProduct = Product & {
   profit: number;
   margin: number;
   hasCost: boolean;
+  isExcluded: boolean;
 };
 
 export type PeriodStats = {
@@ -173,6 +175,7 @@ export function enrichProducts(products: Product[]): EnrichedProduct[] {
       profit,
       margin,
       hasCost,
+      isExcluded: isOverviewExcluded(product),
     };
   });
 }
@@ -194,7 +197,7 @@ export function buildPeriodStats(
   >();
 
   for (const product of products) {
-    if (!product.hasCost) continue;
+    if (product.isExcluded) continue;
 
     const key = toPeriodKey(product.orderDate, granularity);
     const existing = byPeriod.get(key) ?? {
@@ -274,7 +277,7 @@ export function buildMarketplaceStats(
   >();
 
   for (const product of products) {
-    if (!product.hasCost) continue;
+    if (product.isExcluded) continue;
 
     const existing = byMarketplace.get(product.marketplace) ?? {
       revenue: 0,
@@ -325,6 +328,7 @@ function buildSkuAggregates(products: EnrichedProduct[]): SkuRanking[] {
   >();
 
   for (const product of products) {
+    if (product.isExcluded) continue;
     const key = getSkuKey(product);
     const existing = bySku.get(key) ?? {
       sku: product.sku || "—",

@@ -6,6 +6,7 @@ import {
 import {
   allocateFinanceToUnits,
   buyerPaidShippingFromOrder,
+  estimatedShippingFromOrder,
   parseOrderFinance,
   parseSignedAmount,
   reconcileBuyerPaidShipping,
@@ -102,6 +103,11 @@ describe("TikTok finance contracts", () => {
     expect(
       buyerPaidShippingFromOrder({ payment_info: { shipping_fee: "5.83" } }),
     ).toBe(5.83);
+    expect(
+      estimatedShippingFromOrder({
+        payment: { original_shipping_fee: "11.11" },
+      }),
+    ).toBe(11.11);
   });
 
   it("reconciles SKU shipping shares to the checkout total", () => {

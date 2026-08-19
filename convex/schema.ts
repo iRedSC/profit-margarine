@@ -29,6 +29,7 @@ const applicationTables = {
         shippingPercentage: v.optional(v.number()),
         buyerPaidShipping: v.optional(v.number()),
         tiktokFinanceStatus: v.optional(tiktokFinanceStatusValidator),
+        shippingEstimated: v.optional(v.boolean()),
         shipping_breakdown: v.optional(breakdownValidator),
         orderDate: v.number(),
         fulfillmentDate: v.optional(v.number()),

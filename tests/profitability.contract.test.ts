@@ -4,6 +4,7 @@ import {
   calculateMargin,
   calculateProfit,
   getOrderUrl,
+  isOverviewExcluded,
 } from "../src/lib/productUtils";
 import {
   buildMarketplaceStats,
@@ -60,6 +61,12 @@ describe("profitability contracts", () => {
     ).toMatchObject({ netShipping: 7, profit: 38, margin: 38 });
   });
 
+  it("excludes missing costs and estimated shipping from overview totals", () => {
+    expect(isOverviewExcluded(product())).toBe(false);
+    expect(isOverviewExcluded(product({ cost: undefined }))).toBe(true);
+    expect(isOverviewExcluded(product({ shippingEstimated: true }))).toBe(true);
+  });
+
   it("builds a continuous daily series using order dates and complete costs", () => {
     const start = Date.UTC(2026, 7, 15, 12);
     const enriched = enrichProducts([
@@ -77,6 +84,11 @@ describe("profitability contracts", () => {
         _id: "missing-cost" as Product["_id"],
         orderDate: start + DAY,
         cost: undefined,
+      }),
+      product({
+        _id: "estimated-shipping" as Product["_id"],
+        orderDate: start + DAY,
+        shippingEstimated: true,
       }),
     ]);
 

@@ -6,6 +6,15 @@ export type ShippingAmounts = {
   buyerPaidShipping?: number;
 };
 
+export type OverviewEligibility = {
+  cost?: number;
+  shippingEstimated?: boolean;
+};
+
+export function isOverviewExcluded(product: OverviewEligibility): boolean {
+  return product.cost === undefined || product.shippingEstimated === true;
+}
+
 export function getNetShipping(product: ShippingAmounts): number {
   return product.shipping - (product.buyerPaidShipping ?? 0);
 }
