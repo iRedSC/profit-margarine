@@ -187,7 +187,10 @@ describe("display contracts", () => {
   it.each([
     ["Amazon", "https://sellercentral.amazon.com/orders-v3/order/ORDER-1"],
     ["Ebay", "https://www.ebay.com/sh/ord/details?orderid=ORDER-1"],
-    ["TikTok", "https://seller-us.tiktok.com/order/detail/ORDER-1"],
+    [
+      "TikTok",
+      "https://seller-us.tiktok.com/order/detail?order_no=ORDER-1&shop_region=US",
+    ],
   ])("builds the %s order URL", (marketplace, expected) => {
     expect(getOrderUrl(marketplace, "ORDER-1", undefined)).toBe(expected);
   });

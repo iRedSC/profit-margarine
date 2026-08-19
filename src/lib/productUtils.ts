@@ -35,7 +35,7 @@ export function getOrderUrl(marketplace: string, orderId: string | undefined, sh
       if (!shopDomain) return null;
       return `https://${shopDomain}/admin/orders/${orderId}`;
     case "TikTok":
-      return `https://seller-us.tiktok.com/order/detail/${orderId}`;
+      return `https://seller-us.tiktok.com/order/detail?order_no=${encodeURIComponent(orderId)}&shop_region=US`;
     default:
       return null;
   }
