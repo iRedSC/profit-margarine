@@ -30,7 +30,7 @@ const shopifyInstall = createOAuthInstallHandler({
         }
 
         const redirectUri = `${origin}/shopify/callback`;
-        const scopes = "read_orders,read_products";
+        const scopes = "read_orders,read_products,read_reports";
         const nonce = crypto.randomUUID();
 
         return `https://${shop}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${nonce}`;
