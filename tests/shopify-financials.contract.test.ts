@@ -17,7 +17,7 @@ describe("ShopifyQL financial contracts", () => {
 
     expect(query).toContain("WHERE order_id IN (123, 456)");
     expect(query).toContain("GROUP BY order_id");
-    expect(query).not.toContain("SINCE");
+    expect(query).toContain("SINCE 2006-01-01 UNTIL today");
   });
 
   it("rejects order IDs before interpolating them into ShopifyQL", () => {

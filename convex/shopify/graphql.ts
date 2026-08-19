@@ -78,5 +78,9 @@ export async function fetchShopifyGraphQL<TData = ShopifyGraphQLData>(
         throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
     }
 
+    if (json.data == null) {
+        throw new Error("Shopify GraphQL returned no data");
+    }
+
     return json.data;
 }

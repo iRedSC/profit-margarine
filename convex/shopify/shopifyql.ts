@@ -5,6 +5,7 @@ import { internalAction } from "../_generated/server";
 import { fetchShopifyGraphQL } from "./graphql";
 
 const SHOPIFYQL_PAGE_SIZE = 1_000;
+const SHOPIFYQL_DEFAULT_SINCE = "2006-01-01";
 
 export const shopifyOrderFinancialsValidator = v.object({
     orderId: v.string(),
@@ -33,9 +34,9 @@ type ShopifyQlRow = Record<string, string | number | null>;
 type ShopifyQlResponse = {
     shopifyqlQuery?: {
         tableData?: {
-            rows?: ShopifyQlRow[];
+            rows?: unknown;
         } | null;
-        parseErrors: string[];
+        parseErrors?: string[] | null;
     } | null;
 };
 
@@ -51,7 +52,9 @@ function numericOrderIds(orderIds: string[]): string[] {
 }
 
 function dateClause(startDate?: string, endDate?: string): string {
-    if (!startDate && !endDate) return "";
+    if (!startDate && !endDate) {
+        return `SINCE ${SHOPIFYQL_DEFAULT_SINCE} UNTIL today`;
+    }
     if (!startDate || !endDate) {
         throw new Error("ShopifyQL date ranges require both a start and end date");
     }
@@ -213,10 +216,17 @@ async function runShopifyQl(
     );
     const result = data.shopifyqlQuery;
     if (!result) throw new Error("ShopifyQL returned no result");
-    if (result.parseErrors.length > 0) {
-        throw new Error(`ShopifyQL parse error: ${result.parseErrors.join("; ")}`);
+    if ((result.parseErrors ?? []).length > 0) {
+        throw new Error(
+            `ShopifyQL parse error: ${(result.parseErrors ?? []).join("; ")}`
+        );
     }
-    return result.tableData?.rows ?? [];
+    const rows = result.tableData?.rows;
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(
+        (row): row is ShopifyQlRow =>
+            row !== null && typeof row === "object" && !Array.isArray(row)
+    );
 }
 
 async function runPagedShopifyQl(
