@@ -7,6 +7,10 @@ import { Id } from "../_generated/dataModel";
 
 const ebayAmountValidator = v.object({
     value: v.optional(v.union(v.null(), v.string(), v.number())),
+    currency: v.optional(v.union(v.null(), v.string())),
+    convertedFromCurrency: v.optional(v.union(v.null(), v.string())),
+    convertedFromValue: v.optional(v.union(v.null(), v.string(), v.number())),
+    exchangeRate: v.optional(v.union(v.null(), v.string(), v.number())),
 });
 
 const ebayFeeValidator = v.object({
