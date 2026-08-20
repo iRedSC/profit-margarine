@@ -84,6 +84,7 @@ async function processOrderByMarketplace(
                 orderIds: [orderGid],
                 shop: connection.shop,
                 accessToken: connection.accessToken,
+                orderDate: args.orderDate,
             }
         );
         const orderFinancials = financials[0];

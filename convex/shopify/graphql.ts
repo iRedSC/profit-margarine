@@ -1,5 +1,7 @@
 "use node";
 
+import type { ShopifyBasicEvent } from "./shippingLabelEvents";
+
 export type ShopifyMoney = {
     amount?: string;
 };
@@ -28,6 +30,11 @@ export type ShopifyOrder = {
             channelName?: string;
         } | null;
     } | null;
+    events?: {
+        edges: Array<{
+            node: ShopifyBasicEvent;
+        }>;
+    };
     fulfillments?: ShopifyFulfillment[];
     lineItems: {
         edges: Array<{
