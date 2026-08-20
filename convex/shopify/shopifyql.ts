@@ -6,6 +6,22 @@ import { fetchShopifyGraphQL } from "./graphql";
 
 const SHOPIFYQL_PAGE_SIZE = 50;
 const SHOPIFYQL_DEFAULT_SINCE = "2006-01-01";
+const SHOPIFYQL_DAY_MS = 24 * 60 * 60 * 1000;
+const SHOPIFYQL_TZ_PAD_DAYS = 2;
+
+export function shopifyQlDateWindow(
+    orderTimestamp: number,
+    now = Date.now()
+): { startDate: string; endDate: string } {
+    const start = new Date(orderTimestamp - SHOPIFYQL_TZ_PAD_DAYS * SHOPIFYQL_DAY_MS);
+    const end = new Date(
+        Math.max(now, orderTimestamp) + SHOPIFYQL_TZ_PAD_DAYS * SHOPIFYQL_DAY_MS
+    );
+    return {
+        startDate: start.toISOString().slice(0, 10),
+        endDate: end.toISOString().slice(0, 10),
+    };
+}
 
 export const shopifyOrderFinancialsValidator = v.object({
     orderId: v.string(),
@@ -280,16 +296,65 @@ async function runPagedShopifyQl(
     }
 }
 
+async function fetchOrderCreatedAt(
+    shop: string,
+    accessToken: string,
+    orderId: string
+): Promise<number | undefined> {
+    const gid = orderId.startsWith("gid://")
+        ? orderId
+        : `gid://shopify/Order/${orderId}`;
+    const data = await fetchShopifyGraphQL<{
+        order?: { createdAt?: string } | null;
+    }>(
+        `query GetOrderCreatedAt($id: ID!) { order(id: $id) { createdAt } }`,
+        { id: gid },
+        shop,
+        accessToken
+    );
+    const timestamp = Date.parse(data.order?.createdAt ?? "");
+    return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+async function resolveShopifyQlDates(args: {
+    shop: string;
+    accessToken: string;
+    startDate?: string;
+    endDate?: string;
+    orderDate?: number;
+    orderIds?: string[];
+}): Promise<{ startDate?: string; endDate?: string }> {
+    if (args.startDate && args.endDate) {
+        return { startDate: args.startDate, endDate: args.endDate };
+    }
+    if (args.orderDate != null) {
+        return shopifyQlDateWindow(args.orderDate);
+    }
+    const timestamps: number[] = [];
+    for (const orderId of args.orderIds ?? []) {
+        const timestamp = await fetchOrderCreatedAt(
+            args.shop,
+            args.accessToken,
+            orderId
+        );
+        if (timestamp != null) timestamps.push(timestamp);
+    }
+    if (timestamps.length === 0) return {};
+    return shopifyQlDateWindow(Math.min(...timestamps));
+}
+
 export async function fetchShopifyOrderFinancials(args: {
     shop: string;
     accessToken: string;
     startDate?: string;
     endDate?: string;
+    orderDate?: number;
     orderIds?: string[];
 }): Promise<ShopifyOrderFinancials[]> {
+    const { startDate, endDate } = await resolveShopifyQlDates(args);
     const queryArgs = {
-        startDate: args.startDate,
-        endDate: args.endDate,
+        startDate,
+        endDate,
         orderIds: args.orderIds,
     };
     const [profitabilityRows, feeRows, shippingLabelRows] = await Promise.all([
@@ -322,11 +387,13 @@ export const getShopifyOrderFinancials = internalAction({
         shop: v.string(),
         accessToken: v.string(),
         orderIds: v.array(v.string()),
+        orderDate: v.optional(v.number()),
     },
     handler: async (_ctx, args) =>
         fetchShopifyOrderFinancials({
             shop: args.shop,
             accessToken: args.accessToken,
             orderIds: args.orderIds,
+            orderDate: args.orderDate,
         }),
 });

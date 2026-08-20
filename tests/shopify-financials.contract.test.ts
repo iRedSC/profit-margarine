@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyShippingLabelEvents,
+  shippingLabelCostFromEvents,
+} from "../convex/shopify/shippingLabelEvents";
+import {
   buildShopifyFeesQuery,
   buildShopifyProfitabilityQuery,
   buildShopifyShippingLabelsQuery,
   mergeShopifyFinancialRows,
+  shopifyQlDateWindow,
 } from "../convex/shopify/shopifyql";
 
 describe("ShopifyQL financial contracts", () => {
@@ -139,5 +144,55 @@ describe("ShopifyQL financial contracts", () => {
         internationalFees: 0,
       },
     ]);
+  });
+
+  it("pads ShopifyQL windows so overnight UTC orders still match shop-local sale days", () => {
+    expect(
+      shopifyQlDateWindow(
+        Date.parse("2026-08-20T01:53:31Z"),
+        Date.parse("2026-08-20T19:30:00Z"),
+      ),
+    ).toEqual({
+      startDate: "2026-08-18",
+      endDate: "2026-08-22",
+    });
+  });
+});
+
+describe("Shopify shipping label events", () => {
+  const labelPurchased = (amount: string) => ({
+    action: "shipping_label_created_success",
+    message: `Darrick Trout purchased a $${amount} shipping label and the included shipping insurance premium.`,
+  });
+
+  it("sums purchased shipping label amounts from order events", () => {
+    expect(
+      shippingLabelCostFromEvents([
+        {
+          action: "placed",
+          message: "David Croff placed this order on Online Store.",
+        },
+        labelPurchased("29.75"),
+        labelPurchased("29.75"),
+      ]),
+    ).toBe(59.5);
+  });
+
+  it("uses event label costs when ShopifyQL shipping is still zero", () => {
+    expect(
+      applyShippingLabelEvents(
+        {
+          orderId: "7490736750655",
+          storeShippingCost: 0,
+          shippingLabelAdjustment: 0,
+          customerShippingCharges: 43.55,
+          shopifyPaymentsProcessingFees: 5.53,
+          foreignExchangeFees: 0,
+          managedMarketsFees: 0,
+          internationalFees: 0,
+        },
+        [labelPurchased("29.75"), labelPurchased("29.75")],
+      ).storeShippingCost,
+    ).toBe(59.5);
   });
 });

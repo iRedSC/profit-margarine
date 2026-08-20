@@ -9,6 +9,7 @@ import {
     type ShopifyFulfillment,
 } from "./graphql";
 import { splitOrderCosts } from "../lib/orderCosts";
+import { applyShippingLabelEvents } from "./shippingLabelEvents";
 import { shopifyOrderFinancialsValidator } from "./shopifyql";
 
 export const processShopifyOrder = internalAction({
@@ -107,6 +108,16 @@ export const processShopifyOrder = internalAction({
                 channelName
               }
             }
+            events(first: 250) {
+              edges {
+                node {
+                  ... on BasicEvent {
+                    action
+                    message
+                  }
+                }
+              }
+            }
             fulfillments(first: 250) {
               id
               createdAt
@@ -146,6 +157,11 @@ export const processShopifyOrder = internalAction({
             if (!order) {
                 throw new Error(`Order not found: ${args.orderGid}`);
             }
+
+            const financials = applyShippingLabelEvents(
+                args.financials,
+                (order.events?.edges ?? []).map((edge) => edge.node)
+            );
 
             const orderTimestamp = new Date(order.createdAt).getTime();
             log.orderData = {
@@ -203,7 +219,7 @@ export const processShopifyOrder = internalAction({
                 // If we have shipping label cost but all fulfillments are cancelled, skip this order
                 if (
                     activeFulfillments.length === 0 &&
-                    args.financials.storeShippingCost > 0
+                    financials.storeShippingCost > 0
                 ) {
                     log.skipped = true;
                     log.skippedReason = "All fulfillments are cancelled";
@@ -278,7 +294,7 @@ export const processShopifyOrder = internalAction({
             log.summary.totalItems = lineItems.length;
 
             const buyerPaidShippingTotal =
-                args.financials.customerShippingCharges;
+                financials.customerShippingCharges;
 
             // Calculate total quantity across all line items
             const totalQuantity = lineItems.reduce(
@@ -287,7 +303,7 @@ export const processShopifyOrder = internalAction({
             );
             log.summary.totalQuantity = totalQuantity;
 
-            const totalOrderShipping = args.financials.storeShippingCost;
+            const totalOrderShipping = financials.storeShippingCost;
 
             // Split shipping cost evenly across all units
             const { shippingPerUnit, buyerPaidPerUnit: buyerPaidShippingPerUnit } =
@@ -300,27 +316,27 @@ export const processShopifyOrder = internalAction({
                     : { shippingPerUnit: 0, buyerPaidPerUnit: 0 };
 
             log.shippingData = {
-                storeShippingCost: args.financials.storeShippingCost,
+                storeShippingCost: financials.storeShippingCost,
                 shippingLabelAdjustment:
-                    args.financials.shippingLabelAdjustment,
+                    financials.shippingLabelAdjustment,
                 buyerPaidShipping: buyerPaidShippingTotal,
                 shippingPerUnit: shippingPerUnit,
                 buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
             };
 
             const totalOrderFees =
-                args.financials.shopifyPaymentsProcessingFees +
-                args.financials.foreignExchangeFees +
-                args.financials.managedMarketsFees;
+                financials.shopifyPaymentsProcessingFees +
+                financials.foreignExchangeFees +
+                financials.managedMarketsFees;
             const feesPerUnit =
                 totalQuantity > 0 ? totalOrderFees / totalQuantity : 0;
             const feeBreakdown = [
                 [
                     "Shopify Payments Processing Fees",
-                    args.financials.shopifyPaymentsProcessingFees,
+                    financials.shopifyPaymentsProcessingFees,
                 ],
-                ["Foreign Exchange Fees", args.financials.foreignExchangeFees],
-                ["Managed Markets Fees", args.financials.managedMarketsFees],
+                ["Foreign Exchange Fees", financials.foreignExchangeFees],
+                ["Managed Markets Fees", financials.managedMarketsFees],
             ] satisfies Array<[string, number]>;
             const feesBreakdownPerUnit = feeBreakdown
                 .filter(([, amount]) => amount !== 0)
@@ -373,7 +389,7 @@ export const processShopifyOrder = internalAction({
                 // Store the adjustment separately without double-counting it.
                 const shippingBreakdown: Array<[string, number]> = [];
                 const adjustmentPerUnit =
-                    args.financials.shippingLabelAdjustment /
+                    financials.shippingLabelAdjustment /
                     Math.max(1, totalQuantity);
                 const baseShippingPerUnit =
                     shippingPerUnit - adjustmentPerUnit;
