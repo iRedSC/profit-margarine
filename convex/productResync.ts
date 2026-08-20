@@ -12,6 +12,7 @@ import {
 import { Id } from "./_generated/dataModel";
 import { productMarketplaceValidator } from "./lib/validators";
 import { getTiktokApiContext } from "./tiktok/client";
+import { shopifyQlDateWindow } from "./shopify/shopifyql";
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -78,12 +79,15 @@ async function processOrderByMarketplace(
                 ? args.orderId
                 : `gid://shopify/Order/${args.orderId}`;
 
+        const dateWindow = shopifyQlDateWindow(args.orderDate);
         const financials = await ctx.runAction(
             internal.shopify.getShopifyOrderFinancials,
             {
                 orderIds: [orderGid],
                 shop: connection.shop,
                 accessToken: connection.accessToken,
+                startDate: dateWindow.startDate,
+                endDate: dateWindow.endDate,
             }
         );
         const orderFinancials = financials[0];

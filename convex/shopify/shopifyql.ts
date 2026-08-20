@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { fetchShopifyGraphQL } from "./graphql";
 
-const SHOPIFYQL_PAGE_SIZE = 1_000;
+const SHOPIFYQL_PAGE_SIZE = 50;
 const SHOPIFYQL_DEFAULT_SINCE = "2006-01-01";
 
 export const shopifyOrderFinancialsValidator = v.object({
@@ -51,6 +51,34 @@ function numericOrderIds(orderIds: string[]): string[] {
     );
 }
 
+function dayStamp(timestamp: number): string {
+    return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+export function shopifyQlDateWindow(orderTimestamp?: number): {
+    startDate?: string;
+    endDate?: string;
+} {
+    if (orderTimestamp === undefined) return {};
+    const startDate = dayStamp(orderTimestamp);
+    const endDate = dayStamp(Date.now());
+    return {
+        startDate,
+        endDate: endDate < startDate ? startDate : endDate,
+    };
+}
+
+function queryLimit(orderIds?: string[]): number {
+    if (!orderIds || orderIds.length === 0) return SHOPIFYQL_PAGE_SIZE;
+    return Math.min(SHOPIFYQL_PAGE_SIZE, numericOrderIds(orderIds).length);
+}
+
+function limitClause(orderIds?: string[], offset?: number): string {
+    const limit = queryLimit(orderIds);
+    if (!offset) return `LIMIT ${limit}`;
+    return `LIMIT ${limit} OFFSET ${offset}`;
+}
+
 function dateClause(startDate?: string, endDate?: string): string {
     if (!startDate && !endDate) {
         return `SINCE ${SHOPIFYQL_DEFAULT_SINCE} UNTIL today`;
@@ -87,7 +115,7 @@ function buildQuery(args: {
         "GROUP BY order_id",
         dateClause(args.startDate, args.endDate),
         "ORDER BY order_id ASC",
-        `LIMIT ${SHOPIFYQL_PAGE_SIZE} OFFSET ${args.offset ?? 0}`,
+        limitClause(args.orderIds, args.offset),
     ]
         .filter(Boolean)
         .join("\n");
@@ -311,11 +339,15 @@ export const getShopifyOrderFinancials = internalAction({
         shop: v.string(),
         accessToken: v.string(),
         orderIds: v.array(v.string()),
+        startDate: v.optional(v.string()),
+        endDate: v.optional(v.string()),
     },
     handler: async (_ctx, args) =>
         fetchShopifyOrderFinancials({
             shop: args.shop,
             accessToken: args.accessToken,
             orderIds: args.orderIds,
+            startDate: args.startDate,
+            endDate: args.endDate,
         }),
 });

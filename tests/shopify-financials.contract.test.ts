@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildShopifyFeesQuery,
   buildShopifyProfitabilityQuery,
   buildShopifyShippingLabelsQuery,
   mergeShopifyFinancialRows,
+  shopifyQlDateWindow,
 } from "../convex/shopify/shopifyql";
+
+afterEach(() => vi.useRealTimers());
 
 describe("ShopifyQL financial contracts", () => {
   it("targets one or more numeric Shopify order IDs", () => {
@@ -19,6 +22,30 @@ describe("ShopifyQL financial contracts", () => {
     expect(query).toContain("WHERE order_id IN (123, 456)");
     expect(query).toContain("GROUP BY order_id");
     expect(query).toContain("SINCE 2006-01-01 UNTIL today");
+    expect(query).toContain("LIMIT 2");
+    expect(query).not.toContain("OFFSET");
+  });
+
+  it("pages bulk queries in small windows", () => {
+    const query = buildShopifyProfitabilityQuery({
+      startDate: "2026-07-01",
+      endDate: "2026-07-31",
+      offset: 50,
+    });
+
+    expect(query).toContain("LIMIT 50 OFFSET 50");
+    expect(query).not.toContain("LIMIT 1000");
+  });
+
+  it("builds an order-date ShopifyQL window through today", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T19:10:00.000Z"));
+
+    expect(shopifyQlDateWindow(Date.parse("2026-03-15T12:00:00.000Z"))).toEqual({
+      startDate: "2026-03-15",
+      endDate: "2026-08-20",
+    });
+    expect(shopifyQlDateWindow()).toEqual({});
   });
 
   it("rejects order IDs before interpolating them into ShopifyQL", () => {
@@ -96,6 +123,8 @@ describe("ShopifyQL financial contracts", () => {
     expect(query).toContain("FROM shipping_labels");
     expect(query).toContain("shipping_label_costs");
     expect(query).toContain("WHERE order_id IN (123)");
+    expect(query).toContain("LIMIT 1");
+    expect(query).not.toContain("OFFSET");
   });
 
   it("uses shipping label costs when profitability shipping is zero", () => {
