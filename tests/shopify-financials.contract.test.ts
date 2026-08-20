@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildShopifyFeesQuery,
   buildShopifyProfitabilityQuery,
+  buildShopifyShippingLabelsQuery,
   mergeShopifyFinancialRows,
 } from "../convex/shopify/shopifyql";
 
@@ -85,5 +86,43 @@ describe("ShopifyQL financial contracts", () => {
     );
 
     expect(result.map(({ orderId }) => orderId)).toEqual(["123", "456"]);
+  });
+
+  it("queries purchased shipping label costs by order", () => {
+    const query = buildShopifyShippingLabelsQuery({
+      orderIds: ["gid://shopify/Order/123"],
+    });
+
+    expect(query).toContain("FROM shipping_labels");
+    expect(query).toContain("shipping_label_costs");
+    expect(query).toContain("WHERE order_id IN (123)");
+  });
+
+  it("uses shipping label costs when profitability shipping is zero", () => {
+    expect(
+      mergeShopifyFinancialRows(
+        [
+          {
+            order_id: "123",
+            average_store_shipping_costs: "0",
+            average_shipping_label_adjustment_costs: "2.25",
+            average_customer_shipping_charges: "5.00",
+          },
+        ],
+        [{ order_id: "123", shopify_payments_processing_fees: "3.10" }],
+        [{ order_id: "123", shipping_label_costs: "12.00" }],
+      ),
+    ).toEqual([
+      {
+        orderId: "123",
+        storeShippingCost: 14.25,
+        shippingLabelAdjustment: 2.25,
+        customerShippingCharges: 5,
+        shopifyPaymentsProcessingFees: 3.1,
+        foreignExchangeFees: 0,
+        managedMarketsFees: 0,
+        internationalFees: 0,
+      },
+    ]);
   });
 });
