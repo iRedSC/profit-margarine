@@ -1,13 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   buildShopifyFeesQuery,
   buildShopifyProfitabilityQuery,
   buildShopifyShippingLabelsQuery,
   mergeShopifyFinancialRows,
-  shopifyQlDateWindow,
 } from "../convex/shopify/shopifyql";
-
-afterEach(() => vi.useRealTimers());
 
 describe("ShopifyQL financial contracts", () => {
   it("targets one or more numeric Shopify order IDs", () => {
@@ -35,17 +32,6 @@ describe("ShopifyQL financial contracts", () => {
 
     expect(query).toContain("LIMIT 50 OFFSET 50");
     expect(query).not.toContain("LIMIT 1000");
-  });
-
-  it("builds an order-date ShopifyQL window through today", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-20T19:10:00.000Z"));
-
-    expect(shopifyQlDateWindow(Date.parse("2026-03-15T12:00:00.000Z"))).toEqual({
-      startDate: "2026-03-15",
-      endDate: "2026-08-20",
-    });
-    expect(shopifyQlDateWindow()).toEqual({});
   });
 
   it("rejects order IDs before interpolating them into ShopifyQL", () => {

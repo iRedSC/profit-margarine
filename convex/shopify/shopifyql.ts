@@ -51,23 +51,6 @@ function numericOrderIds(orderIds: string[]): string[] {
     );
 }
 
-function dayStamp(timestamp: number): string {
-    return new Date(timestamp).toISOString().slice(0, 10);
-}
-
-export function shopifyQlDateWindow(orderTimestamp?: number): {
-    startDate?: string;
-    endDate?: string;
-} {
-    if (orderTimestamp === undefined) return {};
-    const startDate = dayStamp(orderTimestamp);
-    const endDate = dayStamp(Date.now());
-    return {
-        startDate,
-        endDate: endDate < startDate ? startDate : endDate,
-    };
-}
-
 function queryLimit(orderIds?: string[]): number {
     if (!orderIds || orderIds.length === 0) return SHOPIFYQL_PAGE_SIZE;
     return Math.min(SHOPIFYQL_PAGE_SIZE, numericOrderIds(orderIds).length);
@@ -339,15 +322,11 @@ export const getShopifyOrderFinancials = internalAction({
         shop: v.string(),
         accessToken: v.string(),
         orderIds: v.array(v.string()),
-        startDate: v.optional(v.string()),
-        endDate: v.optional(v.string()),
     },
     handler: async (_ctx, args) =>
         fetchShopifyOrderFinancials({
             shop: args.shop,
             accessToken: args.accessToken,
             orderIds: args.orderIds,
-            startDate: args.startDate,
-            endDate: args.endDate,
         }),
 });
