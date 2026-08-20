@@ -73,7 +73,7 @@ function orderClause(orderIds?: string[]): string {
 }
 
 function buildQuery(args: {
-    schema: "profitability" | "fees";
+    schema: "profitability" | "fees" | "shipping_labels";
     metrics: string[];
     startDate?: string;
     endDate?: string;
@@ -128,6 +128,19 @@ export function buildShopifyFeesQuery(args: {
     });
 }
 
+export function buildShopifyShippingLabelsQuery(args: {
+    startDate?: string;
+    endDate?: string;
+    orderIds?: string[];
+    offset?: number;
+}): string {
+    return buildQuery({
+        schema: "shipping_labels",
+        metrics: ["shipping_label_costs"],
+        ...args,
+    });
+}
+
 function money(row: ShopifyQlRow, key: string): number {
     const value = Number(row[key] ?? 0);
     return Number.isFinite(value) ? value : 0;
@@ -144,7 +157,8 @@ function orderId(row: ShopifyQlRow): string {
 
 export function mergeShopifyFinancialRows(
     profitabilityRows: ShopifyQlRow[],
-    feeRows: ShopifyQlRow[]
+    feeRows: ShopifyQlRow[],
+    shippingLabelRows: ShopifyQlRow[] = []
 ): ShopifyOrderFinancials[] {
     const byOrder = new Map<string, ShopifyOrderFinancials>();
 
@@ -190,6 +204,15 @@ export function mergeShopifyFinancialRows(
         financials.foreignExchangeFees = money(row, "foreign_exchange_fees");
         financials.managedMarketsFees = money(row, "managed_markets_fees");
         financials.internationalFees = money(row, "international_fees");
+    }
+
+    for (const row of shippingLabelRows) {
+        const financials = get(orderId(row));
+        const labelCost = money(row, "shipping_label_costs");
+        if (labelCost !== 0) {
+            financials.storeShippingCost =
+                labelCost + financials.shippingLabelAdjustment;
+        }
     }
 
     return [...byOrder.values()];
@@ -258,7 +281,7 @@ export async function fetchShopifyOrderFinancials(args: {
         endDate: args.endDate,
         orderIds: args.orderIds,
     };
-    const [profitabilityRows, feeRows] = await Promise.all([
+    const [profitabilityRows, feeRows, shippingLabelRows] = await Promise.all([
         runPagedShopifyQl(
             args.shop,
             args.accessToken,
@@ -269,8 +292,18 @@ export async function fetchShopifyOrderFinancials(args: {
             args.accessToken,
             (offset) => buildShopifyFeesQuery({ ...queryArgs, offset })
         ),
+        runPagedShopifyQl(
+            args.shop,
+            args.accessToken,
+            (offset) =>
+                buildShopifyShippingLabelsQuery({ ...queryArgs, offset })
+        ),
     ]);
-    return mergeShopifyFinancialRows(profitabilityRows, feeRows);
+    return mergeShopifyFinancialRows(
+        profitabilityRows,
+        feeRows,
+        shippingLabelRows
+    );
 }
 
 export const getShopifyOrderFinancials = internalAction({
