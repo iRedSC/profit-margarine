@@ -415,33 +415,31 @@ export const processShopifyOrder = internalAction({
                         ? (shippingPerUnit / totalOrderShipping) * 100
                         : 0;
 
-                // Create a marketplace product for each unit
-                for (let i = 0; i < quantity; i++) {
-                    await ctx.runMutation(
-                        internal.products.upsertMarketplaceProduct,
-                        {
-                            userId: args.userId,
-                            marketplace: "Shopify",
-                            sku,
-                            name,
-                            price: pricePerUnit,
-                            fees: feesPerUnit,
-                            fees_breakdown: feesBreakdownPerUnit,
-                            shipping: shippingPerUnit,
-                            shipping_breakdown:
-                                shippingBreakdown.length > 0
-                                    ? shippingBreakdown
-                                    : undefined,
-                            shippingPercentage,
-                            buyerPaidShipping: buyerPaidShippingPerUnit,
-                            orderTimestamp,
-                            fulfillmentTimestamp,
-                            orderId: orderId,
-                            updateExisting: args.updateExisting ?? false,
-                        }
-                    );
-                    log.summary.itemsCreated++;
-                }
+                await ctx.runMutation(
+                    internal.products.upsertMarketplaceProductUnits,
+                    {
+                        userId: args.userId,
+                        marketplace: "Shopify",
+                        sku,
+                        name,
+                        price: pricePerUnit,
+                        fees: feesPerUnit,
+                        fees_breakdown: feesBreakdownPerUnit,
+                        shipping: shippingPerUnit,
+                        shipping_breakdown:
+                            shippingBreakdown.length > 0
+                                ? shippingBreakdown
+                                : undefined,
+                        shippingPercentage,
+                        buyerPaidShipping: buyerPaidShippingPerUnit,
+                        orderTimestamp,
+                        fulfillmentTimestamp,
+                        orderId,
+                        updateExisting: args.updateExisting ?? false,
+                        quantity,
+                    }
+                );
+                log.summary.itemsCreated += quantity;
                 log.summary.itemsProcessed++;
             }
 

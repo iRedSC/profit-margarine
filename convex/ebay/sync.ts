@@ -10,13 +10,15 @@ import {
     processWithProgress,
     validateSyncActive,
     finishSync,
+    getIncrementalSyncStartDate,
     isInactiveSyncError,
 } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
 import {
+    collectEbayTransactionPages,
+    getEbayTransactionOrderIds,
     getEbayAccessToken,
     parseEbayAmount,
-    readEbayTransactionsPage,
     type EbayTransaction,
 } from "./transactions";
 
@@ -48,7 +50,11 @@ export const syncEbayOrders = internalAction({
                 : new Date();
             const startDateObj = args.startDate
                 ? new Date(args.startDate)
-                : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                : await getIncrementalSyncStartDate(
+                      ctx,
+                      args.userId,
+                      "ebay"
+                  );
 
             const daysDiff =
                 (endDateObj.getTime() - startDateObj.getTime()) /
@@ -98,38 +104,43 @@ export const syncEbayOrders = internalAction({
                     );
                 }
 
-                const transactionsUrl = new URL(
-                    `${baseUrl}/sell/finances/v1/transaction`
-                );
-                transactionsUrl.searchParams.set("limit", "200");
-                transactionsUrl.searchParams.set("offset", "0");
-
                 const batchStartDate = batch.start.toISOString();
                 const filter = useEndBound
                     ? `transactionDate:[${batchStartDate}..${batch.end.toISOString()}]`
                     : `transactionDate:[${batchStartDate}..]`;
-                transactionsUrl.searchParams.set("filter", filter);
+                const transactions = await collectEbayTransactionPages({
+                    limit: 200,
+                    fetchPage: async ({ offset, limit }) => {
+                        const transactionsUrl = new URL(
+                            `${baseUrl}/sell/finances/v1/transaction`
+                        );
+                        transactionsUrl.searchParams.set(
+                            "limit",
+                            limit.toString()
+                        );
+                        transactionsUrl.searchParams.set(
+                            "offset",
+                            offset.toString()
+                        );
+                        transactionsUrl.searchParams.set("filter", filter);
 
-                const transactionsResponse = await fetch(
-                    transactionsUrl.toString(),
-                    {
-                        headers: {
-                            Authorization: `Bearer ${accessToken}`,
-                            "Content-Type": "application/json",
-                        },
-                    }
-                );
-
-                if (!transactionsResponse.ok) {
-                    throw new Error(
-                        `Failed to fetch eBay transactions: ${transactionsResponse.status}`
-                    );
-                }
-
-                const transactionsData: unknown =
-                    await transactionsResponse.json();
-                const { transactions } =
-                    readEbayTransactionsPage(transactionsData);
+                        const response = await fetch(
+                            transactionsUrl.toString(),
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${accessToken}`,
+                                    "Content-Type": "application/json",
+                                },
+                            }
+                        );
+                        if (!response.ok) {
+                            throw new Error(
+                                `Failed to fetch eBay transactions: ${response.status}`
+                            );
+                        }
+                        return await response.json();
+                    },
+                });
                 allTransactions.push(...transactions);
 
                 if (batchIndex < batches.length - 1) {
@@ -159,6 +170,15 @@ export const syncEbayOrders = internalAction({
 
             let processedCount = 0;
             const orderIdsArray = Array.from(orderIds);
+            const transactionsByOrder = new Map<string, EbayTransaction[]>();
+            for (const transaction of allTransactions) {
+                for (const orderId of getEbayTransactionOrderIds(transaction)) {
+                    if (!orderIds.has(orderId)) continue;
+                    const transactions = transactionsByOrder.get(orderId) ?? [];
+                    transactions.push(transaction);
+                    transactionsByOrder.set(orderId, transactions);
+                }
+            }
 
             await processWithProgress(
                 ctx,
@@ -171,7 +191,8 @@ export const syncEbayOrders = internalAction({
                             orderId,
                             shippingCost: shippingCostsByOrder[orderId] || 0,
                             accessToken,
-                            allTransactions,
+                            allTransactions:
+                                transactionsByOrder.get(orderId) ?? [],
                             updateExisting: args.updateExisting ?? false,
                         });
                         processedCount++;

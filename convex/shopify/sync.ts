@@ -10,6 +10,7 @@ import {
     processWithProgress,
     validateSyncActive,
     finishSync,
+    getIncrementalSyncStartDate,
     isInactiveSyncError,
 } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
@@ -61,7 +62,11 @@ export const syncShopifyOrders = internalAction({
                 : new Date();
             const startDateObj = args.startDate
                 ? new Date(args.startDate)
-                : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default to last 30 days
+                : await getIncrementalSyncStartDate(
+                      ctx,
+                      args.userId,
+                      "shopify"
+                  );
 
             // Use monthly batching if date range is more than 30 days
             const daysDiff =

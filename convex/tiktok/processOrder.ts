@@ -315,41 +315,34 @@ export const processTiktokOrder = internalAction({
                         ? (shipping / totalOrderShipping) * 100
                         : 0;
 
-                for (let unit = 0; unit < item.quantity; unit++) {
-                    await ctx.runMutation(
-                        internal.products.upsertMarketplaceProduct,
-                        {
-                            userId: args.userId,
-                            marketplace: "TikTok",
-                            sku: item.sku,
-                            name: item.name,
-                            price: item.price,
-                            fees: share.fees,
-                            fees_breakdown: share.feesBreakdown,
-                            shipping,
-                            shipping_breakdown:
-                                usesOrderShippingEstimate
-                                    ? [
-                                          [
-                                              "TikTok shipping (Estimated)",
-                                              shipping,
-                                          ],
-                                      ]
-                                    : share.shippingBreakdown.length > 0
-                                    ? share.shippingBreakdown
-                                    : undefined,
-                            shippingPercentage,
-                            buyerPaidShipping,
-                            tiktokFinanceStatus: financeStatus,
-                            shippingEstimated,
-                            orderTimestamp,
-                            fulfillmentTimestamp,
-                            orderId: args.orderId,
-                            updateExisting: false,
-                        }
-                    );
-                    log.itemsCreated++;
-                }
+                await ctx.runMutation(
+                    internal.products.upsertMarketplaceProductUnits,
+                    {
+                        userId: args.userId,
+                        marketplace: "TikTok",
+                        sku: item.sku,
+                        name: item.name,
+                        price: item.price,
+                        fees: share.fees,
+                        fees_breakdown: share.feesBreakdown,
+                        shipping,
+                        shipping_breakdown: usesOrderShippingEstimate
+                            ? [["TikTok shipping (Estimated)", shipping]]
+                            : share.shippingBreakdown.length > 0
+                              ? share.shippingBreakdown
+                              : undefined,
+                        shippingPercentage,
+                        buyerPaidShipping,
+                        tiktokFinanceStatus: financeStatus,
+                        shippingEstimated,
+                        orderTimestamp,
+                        fulfillmentTimestamp,
+                        orderId: args.orderId,
+                        updateExisting: false,
+                        quantity: item.quantity,
+                    }
+                );
+                log.itemsCreated += item.quantity;
                 log.itemsProcessed++;
             }
 
