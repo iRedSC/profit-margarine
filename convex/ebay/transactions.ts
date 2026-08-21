@@ -55,6 +55,52 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type ConvexValidatorLike = {
+    kind?: string;
+    fields?: Record<string, ConvexValidatorLike>;
+    members?: ConvexValidatorLike[];
+    element?: ConvexValidatorLike;
+};
+
+function pickByValidator(
+    value: unknown,
+    validator: ConvexValidatorLike
+): unknown {
+    if (value === undefined || value === null) {
+        return value;
+    }
+    if (validator.kind === "union") {
+        if (isRecord(value)) {
+            const objectMember = validator.members?.find(
+                (member) => member.kind === "object"
+            );
+            if (objectMember) return pickByValidator(value, objectMember);
+        }
+        if (Array.isArray(value)) {
+            const arrayMember = validator.members?.find(
+                (member) => member.kind === "array"
+            );
+            if (arrayMember) return pickByValidator(value, arrayMember);
+        }
+        return value;
+    }
+    if (validator.kind === "array") {
+        const element = validator.element;
+        if (!Array.isArray(value) || !element) return value;
+        return value.map((item) => pickByValidator(item, element));
+    }
+    if (validator.kind === "object") {
+        if (!isRecord(value) || !validator.fields) return value;
+        const picked: Record<string, unknown> = {};
+        for (const [key, fieldValidator] of Object.entries(validator.fields)) {
+            if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+            picked[key] = pickByValidator(value[key], fieldValidator);
+        }
+        return picked;
+    }
+    return value;
+}
+
 export function parseEbayAmount(amount: unknown): number {
     if (!isRecord(amount)) {
         return parseFloat("0");
@@ -101,8 +147,10 @@ export function toEbayTransactions(value: unknown): EbayTransaction[] {
     }
     const transactions: EbayTransaction[] = [];
     for (const item of value) {
-        if (isRecord(item)) {
-            transactions.push(item);
+        if (!isRecord(item)) continue;
+        const picked = pickByValidator(item, ebayTransactionValidator);
+        if (isRecord(picked)) {
+            transactions.push(picked);
         }
     }
     return transactions;
