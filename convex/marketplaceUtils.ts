@@ -5,6 +5,21 @@ import { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import type { MarketplaceType } from "./marketplaceConnections";
 import { SyncMessages } from "./syncMessages";
+import {
+    runWithConcurrency,
+    shouldReportProgress,
+} from "./lib/concurrency";
+import { getIncrementalSyncStart } from "./lib/syncWindow";
+
+const ORDER_CONCURRENCY: Record<MarketplaceType, number> = {
+    amazon: 3,
+    ebay: 3,
+    shopify: 3,
+    tiktok: 3,
+};
+const PROGRESS_INTERVAL = 10;
+const DEFAULT_SYNC_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+const SYNC_OVERLAP_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Generate monthly date ranges for batch processing
@@ -38,6 +53,25 @@ type MarketplaceProgress = {
     current: number;
     total: number;
 };
+
+export async function getIncrementalSyncStartDate(
+    ctx: ActionCtx,
+    userId: Id<"users">,
+    marketplace: MarketplaceType
+): Promise<Date> {
+    const previousSyncStartedAt = await ctx.runQuery(
+        internal.products.getLatestSuccessfulSyncStartedAt,
+        { userId, marketplace }
+    );
+    return new Date(
+        getIncrementalSyncStart({
+            now: Date.now(),
+            defaultLookbackMs: DEFAULT_SYNC_LOOKBACK_MS,
+            overlapMs: SYNC_OVERLAP_MS,
+            previousSyncStartedAt: previousSyncStartedAt ?? undefined,
+        })
+    );
+}
 
 export function getErrorMessage(error: unknown): string {
     if (typeof error === "object" && error !== null && "message" in error) {
@@ -173,23 +207,40 @@ export async function processWithProgress<T>(
 ) {
     const message = progressMessage || SyncMessages.processing(marketplace);
 
-    // Validate sync exists and is active before starting
-    await validateSyncActive(ctx, syncId);
-
     await updateSyncProgress(ctx, syncId, message, {
         current: 0,
         total: items.length,
     });
 
-    for (let i = 0; i < items.length; i++) {
-        // Validate sync exists and is active before processing each item
-        await validateSyncActive(ctx, syncId);
+    let completed = 0;
+    let pendingProgressUpdate = Promise.resolve();
 
-        await processor(items[i], i);
+    await runWithConcurrency({
+        items,
+        concurrency: ORDER_CONCURRENCY[marketplace],
+        process: async (item, index) => {
+            await pendingProgressUpdate;
+            await processor(item, index);
+            completed += 1;
 
-        await updateSyncProgress(ctx, syncId, message, {
-            current: i + 1,
-            total: items.length,
-        });
-    }
+            if (
+                !shouldReportProgress({
+                    completed,
+                    total: items.length,
+                    interval: PROGRESS_INTERVAL,
+                })
+            ) {
+                return;
+            }
+
+            const current = completed;
+            pendingProgressUpdate = pendingProgressUpdate.then(() =>
+                updateSyncProgress(ctx, syncId, message, {
+                    current,
+                    total: items.length,
+                })
+            );
+            await pendingProgressUpdate;
+        },
+    });
 }

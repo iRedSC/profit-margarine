@@ -387,6 +387,18 @@ export const upsertMarketplaceProduct = internalMutation({
     },
 });
 
+export const upsertMarketplaceProductUnits = internalMutation({
+    args: {
+        ...upsertMarketplaceProductArgs,
+        quantity: v.number(),
+    },
+    handler: async (ctx, { quantity, ...product }) => {
+        for (let unit = 0; unit < quantity; unit++) {
+            await upsertMarketplaceProductHandler(ctx, product);
+        }
+    },
+});
+
 export const upsertPendingMarketplaceImport = internalMutation({
     args: upsertPendingMarketplaceImportArgs,
     handler: async (ctx, args) => {

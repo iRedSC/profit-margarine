@@ -9,6 +9,7 @@ import {
     processWithProgress,
     validateSyncActive,
     finishSync,
+    getIncrementalSyncStartDate,
     isInactiveSyncError,
 } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
@@ -73,7 +74,11 @@ export const syncTiktokOrders = internalAction({
                 : new Date();
             const startDateObj = args.startDate
                 ? new Date(args.startDate)
-                : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                : await getIncrementalSyncStartDate(
+                      ctx,
+                      args.userId,
+                      "tiktok"
+                  );
 
             const daysDiff =
                 (endDateObj.getTime() - startDateObj.getTime()) /

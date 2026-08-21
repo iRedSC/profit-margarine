@@ -14,7 +14,7 @@ export function shippingLabelCostFromEvents(
         if (event.action !== "shipping_label_created_success") continue;
         const match = event.message?.match(LABEL_PURCHASE_COST);
         if (!match) continue;
-        const amount = Number(match[1].replaceAll(",", ""));
+        const amount = Number(match[1].split(",").join(""));
         if (Number.isFinite(amount)) total += amount;
     }
     return total;

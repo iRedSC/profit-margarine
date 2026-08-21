@@ -3,6 +3,7 @@ import { query, internalQuery, type QueryCtx } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Doc, Id } from "../_generated/dataModel";
 import { AMAZON_ESTIMATED_FEE_LABEL } from "../lib/orderCosts";
+import { syncMarketplaceValidator } from "../lib/validators";
 
 type MarketplaceProductDoc = Doc<"marketplaceProducts">;
 type ProductDoc = Doc<"products">;
@@ -453,6 +454,28 @@ export const getSyncById = internalQuery({
     },
     handler: async (ctx, args) => {
         return await ctx.db.get(args.syncId);
+    },
+});
+
+export const getLatestSuccessfulSyncStartedAt = internalQuery({
+    args: {
+        userId: v.id("users"),
+        marketplace: syncMarketplaceValidator,
+    },
+    handler: async (ctx, args) => {
+        const sync = await ctx.db
+            .query("syncs")
+            .withIndex("by_user_marketplace_status", (q) =>
+                q
+                    .eq("userId", args.userId)
+                    .eq("marketplace", args.marketplace)
+                    .eq("status", "finished")
+            )
+            .order("desc")
+            .filter((q) => q.eq(q.field("error"), undefined))
+            .first();
+
+        return sync?.startedAt;
     },
 });
 

@@ -659,30 +659,31 @@ export const processAmazonOrder = internalAction({
                     continue;
                 }
 
-                // Create a marketplace product for each quantity
-                for (let i = 0; i < quantity; i++) {
-                    await ctx.runMutation(
-                        internal.products.upsertMarketplaceProduct,
-                        {
-                            userId: args.userId,
-                            marketplace: "Amazon",
-                            sku: item.SellerSKU,
-                            name: item.Title,
-                            price: pricePerUnit,
-                            fees: feesPerUnit,
-                            fees_breakdown: feesBreakdownPerUnit,
-                            shipping: shippingPerUnit,
-                            shipping_breakdown: shippingBreakdown.length > 0 ? shippingBreakdown : undefined,
-                            shippingPercentage,
-                            buyerPaidShipping: buyerPaidShippingPerUnit,
-                            orderTimestamp,
-                            fulfillmentTimestamp,
-                            orderId: args.orderId,
-                            updateExisting: args.updateExisting ?? false,
-                        }
-                    );
-                    log.summary.itemsCreated++;
-                }
+                await ctx.runMutation(
+                    internal.products.upsertMarketplaceProductUnits,
+                    {
+                        userId: args.userId,
+                        marketplace: "Amazon",
+                        sku: item.SellerSKU,
+                        name: item.Title,
+                        price: pricePerUnit,
+                        fees: feesPerUnit,
+                        fees_breakdown: feesBreakdownPerUnit,
+                        shipping: shippingPerUnit,
+                        shipping_breakdown:
+                            shippingBreakdown.length > 0
+                                ? shippingBreakdown
+                                : undefined,
+                        shippingPercentage,
+                        buyerPaidShipping: buyerPaidShippingPerUnit,
+                        orderTimestamp,
+                        fulfillmentTimestamp,
+                        orderId: args.orderId,
+                        updateExisting: args.updateExisting ?? false,
+                        quantity,
+                    }
+                );
+                log.summary.itemsCreated += quantity;
                 log.summary.itemsProcessed++;
             }
 

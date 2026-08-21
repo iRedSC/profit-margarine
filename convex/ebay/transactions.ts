@@ -125,20 +125,29 @@ export function transactionBelongsToOrder(
     transaction: { orderId?: unknown; references?: unknown },
     orderId: string
 ): boolean {
-    if (transaction.orderId === orderId) {
-        return true;
+    return getEbayTransactionOrderIds(transaction).includes(orderId);
+}
+
+export function getEbayTransactionOrderIds(transaction: {
+    orderId?: unknown;
+    references?: unknown;
+}): string[] {
+    const orderIds = new Set<string>();
+    if (typeof transaction.orderId === "string") {
+        orderIds.add(transaction.orderId);
     }
     if (transaction.references && Array.isArray(transaction.references)) {
-        return transaction.references.some((ref) => {
-            if (!isRecord(ref)) {
-                return false;
+        for (const reference of transaction.references) {
+            if (
+                isRecord(reference) &&
+                reference.referenceType === "ORDER_ID" &&
+                typeof reference.referenceId === "string"
+            ) {
+                orderIds.add(reference.referenceId);
             }
-            return (
-                ref.referenceType === "ORDER_ID" && ref.referenceId === orderId
-            );
-        });
+        }
     }
-    return false;
+    return [...orderIds];
 }
 
 export function toEbayTransactions(value: unknown): EbayTransaction[] {
@@ -163,6 +172,26 @@ export function readEbayTransactionsPage(data: unknown): {
     const raw = isRecord(data) ? data.transactions : undefined;
     const rawPage = Array.isArray(raw) ? raw : [];
     return { rawPage, transactions: toEbayTransactions(rawPage) };
+}
+
+type CollectEbayTransactionPagesArgs = {
+    limit: number;
+    fetchPage: (args: { offset: number; limit: number }) => Promise<unknown>;
+};
+
+export async function collectEbayTransactionPages({
+    limit,
+    fetchPage,
+}: CollectEbayTransactionPagesArgs): Promise<EbayTransaction[]> {
+    const transactions: EbayTransaction[] = [];
+
+    for (let offset = 0; ; offset += limit) {
+        const page = readEbayTransactionsPage(
+            await fetchPage({ offset, limit })
+        );
+        transactions.push(...page.transactions);
+        if (page.rawPage.length < limit) return transactions;
+    }
 }
 
 export async function getEbayAccessToken(

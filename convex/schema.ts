@@ -95,7 +95,12 @@ const applicationTables = {
     })
         .index("by_user", ["userId"])
         .index("by_user_and_status", ["userId", "status"])
-        .index("by_user_and_marketplace", ["userId", "marketplace"]),
+        .index("by_user_and_marketplace", ["userId", "marketplace"])
+        .index("by_user_marketplace_status", [
+            "userId",
+            "marketplace",
+            "status",
+        ]),
 
     ebayAccountDeletions: defineTable({
         ebayUserId: v.string(),
