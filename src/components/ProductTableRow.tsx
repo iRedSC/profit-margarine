@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
-import { calculateProfit, calculateMargin } from "../lib/productUtils";
+import { calculateProfit, calculateMargin, hasUnexpectedZeroShipping } from "../lib/productUtils";
 import { Product } from "../types/product";
 import { ContextMenu } from "./ContextMenu";
 import { Tooltip } from "./Tooltip";
@@ -61,7 +61,7 @@ export function ProductTableRow({
     const isProfitable = profit > 0;
     const isDubious = profit > 0 && (margin < 5 || profit < 3);
     const hasCost = product.cost !== undefined;
-    const hasZeroShipping = product.shipping === 0;
+    const hasZeroShipping = hasUnexpectedZeroShipping(product);
     const hasPendingShipping =
         product.marketplace === "TikTok" &&
         product.tiktokFinanceStatus !== "settled";

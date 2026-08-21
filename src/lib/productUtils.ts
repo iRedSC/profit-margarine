@@ -11,8 +11,17 @@ export type OverviewEligibility = {
   shippingEstimated?: boolean;
 };
 
+export type ZeroShippingWarning = {
+  shipping: number;
+  isPickup?: boolean;
+};
+
 export function isOverviewExcluded(product: OverviewEligibility): boolean {
   return product.cost === undefined || product.shippingEstimated === true;
+}
+
+export function hasUnexpectedZeroShipping(product: ZeroShippingWarning): boolean {
+  return product.shipping === 0 && product.isPickup !== true;
 }
 
 export function getNetShipping(product: ShippingAmounts): number {

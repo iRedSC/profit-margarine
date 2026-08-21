@@ -21,6 +21,19 @@ export type ShopifyFulfillment = {
     status?: string;
 };
 
+export type ShopifyFulfillmentOrder = {
+    deliveryMethod?: {
+        methodType?: string;
+    } | null;
+};
+
+export type ShopifyShippingLine = {
+    title?: string;
+    code?: string | null;
+    deliveryCategory?: string | null;
+    shippingRateHandle?: string | null;
+};
+
 export type ShopifyOrder = {
     name?: string;
     createdAt: string;
@@ -36,6 +49,18 @@ export type ShopifyOrder = {
         }>;
     };
     fulfillments?: ShopifyFulfillment[];
+    fulfillmentOrders?: {
+        nodes?: ShopifyFulfillmentOrder[];
+        edges?: Array<{
+            node?: ShopifyFulfillmentOrder;
+        }>;
+    };
+    shippingLines?: {
+        nodes?: ShopifyShippingLine[];
+        edges?: Array<{
+            node?: ShopifyShippingLine;
+        }>;
+    };
     lineItems: {
         edges: Array<{
             node: ShopifyLineItem;
@@ -61,7 +86,8 @@ export async function fetchShopifyGraphQL<TData = ShopifyGraphQLData>(
     query: string,
     variables: ShopifyGraphQLVariables,
     shop: string,
-    accessToken: string
+    accessToken: string,
+    options?: { allowPartial?: boolean }
 ): Promise<TData> {
     const endpoint = `https://${shop}/admin/api/2026-01/graphql.json`;
 
@@ -81,12 +107,12 @@ export async function fetchShopifyGraphQL<TData = ShopifyGraphQLData>(
 
     const json = (await res.json()) as ShopifyGraphQLResponse<TData>;
 
-    if (json.errors) {
-        throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
-    }
-
     if (json.data == null) {
         throw new Error("Shopify GraphQL returned no data");
+    }
+
+    if (json.errors && !options?.allowPartial) {
+        throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
     }
 
     return json.data;

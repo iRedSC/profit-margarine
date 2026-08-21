@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isShopifyPickupOrder } from "../convex/shopify/pickup";
 import {
   applyShippingLabelEvents,
   shippingLabelCostFromEvents,
@@ -194,5 +195,66 @@ describe("Shopify shipping label events", () => {
         [labelPurchased("29.75"), labelPurchased("29.75")],
       ).storeShippingCost,
     ).toBe(59.5);
+  });
+});
+
+describe("Shopify pickup orders", () => {
+  it("treats an order as pickup only when every fulfillment is pickup", () => {
+    expect(
+      isShopifyPickupOrder({
+        fulfillmentOrders: {
+          nodes: [{ deliveryMethod: { methodType: "PICK_UP" } }],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isShopifyPickupOrder({
+        fulfillmentOrders: {
+          nodes: [{ deliveryMethod: { methodType: "pick-up" } }],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isShopifyPickupOrder({
+        fulfillmentOrders: {
+          nodes: [
+            { deliveryMethod: { methodType: "PICK_UP" } },
+            { deliveryMethod: { methodType: "SHIPPING" } },
+          ],
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isShopifyPickupOrder({
+        fulfillmentOrders: {
+          nodes: [{ deliveryMethod: { methodType: "PICKUP_POINT" } }],
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isShopifyPickupOrder({
+        fulfillmentOrders: {
+          nodes: [{ deliveryMethod: { methodType: "SHIPPING" } }],
+        },
+      }),
+    ).toBe(false);
+    expect(isShopifyPickupOrder({})).toBe(false);
+    expect(
+      isShopifyPickupOrder({
+        shippingLines: {
+          nodes: [{ title: "Pickup", code: "pickup" }],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isShopifyPickupOrder({
+        fulfillmentOrders: {
+          nodes: [{ deliveryMethod: { methodType: "SHIPPING" } }],
+        },
+        shippingLines: {
+          nodes: [{ title: "Pickup" }],
+        },
+      }),
+    ).toBe(false);
   });
 });

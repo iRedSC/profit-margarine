@@ -10,6 +10,7 @@ import {
 } from "./graphql";
 import { splitOrderCosts } from "../lib/orderCosts";
 import { applyShippingLabelEvents } from "./shippingLabelEvents";
+import { isShopifyPickupOrder } from "./pickup";
 import { shopifyOrderFinancialsValidator } from "./shopifyql";
 
 export const processShopifyOrder = internalAction({
@@ -38,6 +39,7 @@ export const processShopifyOrder = internalAction({
                 orderExists?: boolean;
                 channelName?: string;
                 lineItemsCount?: number;
+                isPickup?: boolean;
             };
             shippingData?: {
                 storeShippingCost: number;
@@ -127,6 +129,21 @@ export const processShopifyOrder = internalAction({
                 company
               }
             }
+            fulfillmentOrders(first: 50) {
+              nodes {
+                deliveryMethod {
+                  methodType
+                }
+              }
+            }
+            shippingLines(first: 20) {
+              nodes {
+                title
+                code
+                deliveryCategory
+                shippingRateHandle
+              }
+            }
             lineItems(first: 250) {
               edges {
                 node {
@@ -150,7 +167,8 @@ export const processShopifyOrder = internalAction({
                 query,
                 { id: args.orderGid },
                 args.shop,
-                args.accessToken
+                args.accessToken,
+                { allowPartial: true }
             );
             const order = data.order;
 
@@ -164,6 +182,7 @@ export const processShopifyOrder = internalAction({
             );
 
             const orderTimestamp = new Date(order.createdAt).getTime();
+            const isPickup = isShopifyPickupOrder(order);
             log.orderData = {
                 orderName: order.name,
                 createdAt: order.createdAt,
@@ -171,6 +190,7 @@ export const processShopifyOrder = internalAction({
                 orderTimestamp: orderTimestamp,
                 channelName:
                     order.channelInformation?.channelDefinition?.channelName,
+                isPickup,
             };
 
             // Get allowed sales channels from environment variable
@@ -432,6 +452,7 @@ export const processShopifyOrder = internalAction({
                                 : undefined,
                         shippingPercentage,
                         buyerPaidShipping: buyerPaidShippingPerUnit,
+                        isPickup,
                         orderTimestamp,
                         fulfillmentTimestamp,
                         orderId,

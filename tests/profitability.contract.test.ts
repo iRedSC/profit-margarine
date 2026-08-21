@@ -4,6 +4,7 @@ import {
   calculateMargin,
   calculateProfit,
   getOrderUrl,
+  hasUnexpectedZeroShipping,
   isOverviewExcluded,
 } from "../src/lib/productUtils";
 import {
@@ -59,6 +60,14 @@ describe("profitability contracts", () => {
     expect(
       enrichProducts([product({ shipping: 12, buyerPaidShipping: 5 })])[0],
     ).toMatchObject({ netShipping: 7, profit: 38, margin: 38 });
+  });
+
+  it("treats pickup as the only valid $0 shipping case", () => {
+    expect(hasUnexpectedZeroShipping({ shipping: 0 })).toBe(true);
+    expect(hasUnexpectedZeroShipping({ shipping: 0, isPickup: true })).toBe(
+      false,
+    );
+    expect(hasUnexpectedZeroShipping({ shipping: 8 })).toBe(false);
   });
 
   it("excludes missing costs and estimated shipping from overview totals", () => {

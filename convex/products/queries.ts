@@ -40,6 +40,7 @@ function mapMarketplaceProductRow(
         ...(mp.shippingEstimated
             ? { shippingEstimated: true }
             : {}),
+        ...(mp.isPickup ? { isPickup: true } : {}),
         orderDate: mp.orderDate,
         fulfillmentDate: mp.fulfillmentDate,
         orderId: resolveOrderId(mp),

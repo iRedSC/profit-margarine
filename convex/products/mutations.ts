@@ -170,6 +170,7 @@ const upsertMarketplaceProductArgs = {
     ...marketplaceLineItemFields,
     tiktokFinanceStatus: v.optional(tiktokFinanceStatusValidator),
     shippingEstimated: v.optional(v.boolean()),
+    isPickup: v.optional(v.boolean()),
     updateExisting: v.optional(v.boolean()),
 };
 
@@ -329,6 +330,7 @@ async function upsertMarketplaceProductHandler(
                     buyerPaidShipping: args.buyerPaidShipping,
                     tiktokFinanceStatus: args.tiktokFinanceStatus,
                     shippingEstimated: args.shippingEstimated,
+                    isPickup: args.isPickup,
                     fulfillmentDate: args.fulfillmentTimestamp,
                     name: args.name,
                 });
@@ -360,6 +362,7 @@ async function upsertMarketplaceProductHandler(
         buyerPaidShipping: args.buyerPaidShipping,
         tiktokFinanceStatus: args.tiktokFinanceStatus,
         shippingEstimated: args.shippingEstimated,
+        isPickup: args.isPickup,
         orderDate: args.orderTimestamp,
         fulfillmentDate: args.fulfillmentTimestamp,
         userId: args.userId,
