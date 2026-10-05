@@ -36,12 +36,14 @@ export function ProductAnalyzer() {
         search,
         marketplaceFilters,
         toggleMarketplaceFilter,
-        dateRangeType,
+        dateRange,
         setDateRange,
         dateRangeStart,
         dateRangeEnd,
+        dateField,
+        setDateField,
         clearFilters,
-    } = useProductFilters("today");
+    } = useProductFilters("today", "fulfillmentDate");
 
     const filteredProducts = useMemo(
         () =>
@@ -50,9 +52,9 @@ export function ProductAnalyzer() {
                 marketplaces: marketplaceFilters,
                 start: dateRangeStart,
                 end: dateRangeEnd,
-                dateField: "fulfillmentDate",
+                dateField,
             }),
-        [products, search, marketplaceFilters, dateRangeStart, dateRangeEnd]
+        [products, search, marketplaceFilters, dateRangeStart, dateRangeEnd, dateField]
     );
 
     const sortedProducts = useMemo(
@@ -95,8 +97,10 @@ export function ProductAnalyzer() {
                 setSkuFilter={setSearchInput}
                 marketplaceFilters={marketplaceFilters}
                 toggleMarketplaceFilter={toggleMarketplaceFilter}
-                dateRangeType={dateRangeType}
+                dateRange={dateRange}
                 setDateRange={setDateRange}
+                dateField={dateField}
+                setDateField={setDateField}
                 clearFilters={clearFilters}
             />
 
