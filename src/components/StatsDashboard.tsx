@@ -1,5 +1,4 @@
-import { useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { useProducts } from "../hooks/useProducts";
 import { useCallback, useMemo, type ReactNode } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import {
@@ -712,7 +711,7 @@ function ItemsTable({
 }
 
 export function StatsDashboard() {
-  const productsQuery = useQuery(api.products.listProducts);
+  const productsQuery = useProducts();
   const products = useMemo(() => productsQuery ?? [], [productsQuery]);
   const productsLoading = productsQuery === undefined;
 

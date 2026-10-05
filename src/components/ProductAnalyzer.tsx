@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { useProducts } from "../hooks/useProducts";
 import { Id } from "../../convex/_generated/dataModel";
 import { useState, useMemo } from "react";
 import { ProductFilters } from "./ProductFilters";
@@ -17,7 +18,7 @@ import { filterProducts, sortProducts } from "../lib/productListUtils";
 import { Product } from "../types/product";
 
 export function ProductAnalyzer() {
-    const productsQuery = useQuery(api.products.listProducts);
+    const productsQuery = useProducts();
     const products = useMemo(() => productsQuery ?? [], [productsQuery]);
     const updateMarketplaceCost = useMutation(
         api.products.updateMarketplaceCost
