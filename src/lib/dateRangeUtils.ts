@@ -190,3 +190,144 @@ export function isDateRangeType(
         Math.abs(rangeEnd - expectedRange.end) <= tolerance
     );
 }
+
+/**
+ * What the user picked in a date filter. Presets are relative to now; months
+ * and custom ranges are fixed calendar dates in local time.
+ */
+export type DateRangeSelection =
+    | { kind: "preset"; preset: DateRangeType }
+    /** "YYYY-MM" */
+    | { kind: "month"; month: string }
+    /** Inclusive "YYYY-MM-DD" days. An empty side is open-ended. */
+    | { kind: "custom"; start: string; end: string };
+
+function pad2(value: number): string {
+    return String(value).padStart(2, "0");
+}
+
+export function toMonthKey(date: Date): string {
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+}
+
+export function toDayKey(date: Date): string {
+    return `${toMonthKey(date)}-${pad2(date.getDate())}`;
+}
+
+function parseDayKey(key: string): Date | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+    if (!match) return null;
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function parseMonthKey(key: string): Date | null {
+    const match = /^(\d{4})-(\d{2})$/.exec(key);
+    if (!match) return null;
+    return new Date(Number(match[1]), Number(match[2]) - 1, 1);
+}
+
+export function formatMonthKey(key: string): string {
+    const date = parseMonthKey(key);
+    return date
+        ? date.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+        : key;
+}
+
+/** The `count` full calendar months before the current one, newest first. */
+export function recentMonthKeys(count: number, now = new Date()): string[] {
+    return Array.from({ length: count }, (_, index) =>
+        toMonthKey(new Date(now.getFullYear(), now.getMonth() - index - 1, 1))
+    );
+}
+
+export function resolveDateRange(selection: DateRangeSelection): {
+    start: number | null;
+    end: number | null;
+} {
+    switch (selection.kind) {
+        case "preset":
+            return getDateRange(selection.preset);
+        case "month": {
+            const month = parseMonthKey(selection.month);
+            if (!month) return { start: null, end: null };
+            return {
+                start: getStartOfMonth(month).getTime(),
+                end: getEndOfMonth(month).getTime(),
+            };
+        }
+        case "custom": {
+            const start = parseDayKey(selection.start);
+            const end = parseDayKey(selection.end);
+            // Tolerate a reversed range rather than silently matching nothing.
+            const [from, to] =
+                start && end && start > end ? [end, start] : [start, end];
+            return {
+                start: from ? getStartOfDay(from).getTime() : null,
+                end: to ? getEndOfDay(to).getTime() : null,
+            };
+        }
+    }
+}
+
+/**
+ * The period to compare a range against. A range still in progress compares
+ * with the same elapsed stretch of the period before it, so Today at 4pm
+ * compares with yesterday until 4pm, not with all of yesterday. Ranges that
+ * start on the 1st and stay inside that month step back one calendar month
+ * (August compares with all of July); anything else steps back by its own
+ * length. Returns null when there is nothing to compare: all time, or a range
+ * that hasn't started yet.
+ */
+export function previousPeriod(
+    start: number | null,
+    end: number | null,
+    now = Date.now()
+): { start: number; end: number } | null {
+    if (start === null) return null;
+    const effectiveEnd = Math.min(end ?? now, now);
+    if (effectiveEnd < start) return null;
+
+    const startDate = new Date(start);
+    const monthEnd = getEndOfMonth(startDate).getTime();
+    const isMonthAligned =
+        start === getStartOfMonth(startDate).getTime() &&
+        effectiveEnd <= monthEnd;
+    if (isMonthAligned) {
+        const prevStart = new Date(
+            startDate.getFullYear(),
+            startDate.getMonth() - 1,
+            1
+        );
+        const prevMonthEnd = getEndOfMonth(prevStart).getTime();
+        return {
+            start: prevStart.getTime(),
+            end:
+                effectiveEnd === monthEnd
+                    ? prevMonthEnd
+                    : Math.min(
+                          prevStart.getTime() + (effectiveEnd - start),
+                          prevMonthEnd
+                      ),
+        };
+    }
+
+    const fullLength = (end ?? now) - start + 1;
+    const prevStart = start - fullLength;
+    return { start: prevStart, end: prevStart + (effectiveEnd - start) };
+}
+
+export function formatRangeLabel(start: number, end: number): string {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const sameYear = startDate.getFullYear() === endDate.getFullYear();
+    const format = (date: Date, withYear: boolean) =>
+        date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            ...(withYear ? { year: "numeric" } : {}),
+        });
+    if (toDayKey(startDate) === toDayKey(endDate)) {
+        return format(startDate, true);
+    }
+    return `${format(startDate, !sameYear)} – ${format(endDate, true)}`;
+}

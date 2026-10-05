@@ -18,6 +18,13 @@ export type ProductFilters = {
   dateField: ProductDateField;
 };
 
+/** The date a row counts under. Unfulfilled rows fall back to the order date. */
+export function productDate(product: Product, field: ProductDateField): number {
+  return field === "orderDate"
+    ? product.orderDate
+    : (product.fulfillmentDate ?? product.orderDate);
+}
+
 export function isSameProduct(a: Product, b: Product): boolean {
   return a.productId && b.productId
     ? a.productId === b.productId
@@ -42,10 +49,7 @@ export function filterProducts(
       return false;
     }
 
-    const date =
-      filters.dateField === "orderDate"
-        ? product.orderDate
-        : (product.fulfillmentDate ?? product.orderDate);
+    const date = productDate(product, filters.dateField);
     return (
       (filters.start === null || date >= filters.start) &&
       (filters.end === null || date <= filters.end)

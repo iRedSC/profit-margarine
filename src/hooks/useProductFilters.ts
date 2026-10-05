@@ -1,13 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { DateRangeType, getDateRange } from "../lib/dateRangeUtils";
+import {
+  DateRangeSelection,
+  DateRangeType,
+  resolveDateRange,
+} from "../lib/dateRangeUtils";
+import type { ProductDateField } from "../lib/productListUtils";
 
-export function useProductFilters(defaultRange: DateRangeType) {
+export function useProductFilters(
+  defaultRange: DateRangeType,
+  defaultDateField: ProductDateField
+) {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [marketplaceFilters, setMarketplaceFilters] = useState<Set<string>>(
     new Set()
   );
-  const [dateRangeType, setDateRange] = useState<DateRangeType>(defaultRange);
+  const [dateField, setDateField] =
+    useState<ProductDateField>(defaultDateField);
+  const [dateRange, setDateRange] = useState<DateRangeSelection>({
+    kind: "preset",
+    preset: defaultRange,
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -18,8 +31,8 @@ export function useProductFilters(defaultRange: DateRangeType) {
   }, [searchInput]);
 
   const { start: dateRangeStart, end: dateRangeEnd } = useMemo(
-    () => getDateRange(dateRangeType),
-    [dateRangeType]
+    () => resolveDateRange(dateRange),
+    [dateRange]
   );
 
   const toggleMarketplaceFilter = (marketplace: string) => {
@@ -36,7 +49,8 @@ export function useProductFilters(defaultRange: DateRangeType) {
     setSearchInput("");
     setSearch("");
     setMarketplaceFilters(new Set());
-    setDateRange(defaultRange);
+    setDateRange({ kind: "preset", preset: defaultRange });
+    setDateField(defaultDateField);
   };
 
   return {
@@ -45,10 +59,12 @@ export function useProductFilters(defaultRange: DateRangeType) {
     search,
     marketplaceFilters,
     toggleMarketplaceFilter,
-    dateRangeType,
+    dateRange,
     setDateRange,
     dateRangeStart,
     dateRangeEnd,
+    dateField,
+    setDateField,
     clearFilters,
   };
 }

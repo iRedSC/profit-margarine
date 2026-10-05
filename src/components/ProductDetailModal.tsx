@@ -52,12 +52,14 @@ export function ProductDetailModal({
         setSearchInput,
         marketplaceFilters,
         toggleMarketplaceFilter,
-        dateRangeType,
+        dateRange,
         setDateRange,
         dateRangeStart,
         dateRangeEnd,
+        dateField,
+        setDateField,
         clearFilters,
-    } = useProductFilters("allTime");
+    } = useProductFilters("allTime", "fulfillmentDate");
 
     const itemInstances = useMemo(() => {
         if (!product) {
@@ -72,9 +74,9 @@ export function ProductDetailModal({
                 marketplaces: marketplaceFilters,
                 start: dateRangeStart,
                 end: dateRangeEnd,
-                dateField: "fulfillmentDate",
+                dateField,
             }),
-        [itemInstances, marketplaceFilters, dateRangeStart, dateRangeEnd]
+        [itemInstances, marketplaceFilters, dateRangeStart, dateRangeEnd, dateField]
     );
 
     const sortedProducts = useMemo(
@@ -139,8 +141,10 @@ export function ProductDetailModal({
                                 setSkuFilter={setSearchInput}
                                 marketplaceFilters={marketplaceFilters}
                                 toggleMarketplaceFilter={toggleMarketplaceFilter}
-                                dateRangeType={dateRangeType}
+                                dateRange={dateRange}
                                 setDateRange={setDateRange}
+                                dateField={dateField}
+                                setDateField={setDateField}
                                 clearFilters={clearFilters}
                                 hideSearch
                                 title="Filter Instances"

@@ -1,13 +1,22 @@
-import { DateRangeType } from "../lib/dateRangeUtils";
-import { useState } from "react";
+import {
+    DateRangeSelection,
+    DateRangeType,
+    formatMonthKey,
+    recentMonthKeys,
+    toDayKey,
+} from "../lib/dateRangeUtils";
+import type { ProductDateField } from "../lib/productListUtils";
+import { useMemo, useState } from "react";
 
 type ProductFiltersProps = {
     skuFilter: string;
     setSkuFilter: (value: string) => void;
     marketplaceFilters: Set<string>;
     toggleMarketplaceFilter: (marketplace: string) => void;
-    dateRangeType: DateRangeType;
-    setDateRange: (rangeType: DateRangeType) => void;
+    dateRange: DateRangeSelection;
+    setDateRange: (range: DateRangeSelection) => void;
+    dateField: ProductDateField;
+    setDateField: (field: ProductDateField) => void;
     clearFilters: () => void;
     hideSearch?: boolean;
     title?: string;
@@ -36,23 +45,50 @@ export function ProductFilters({
     setSkuFilter,
     marketplaceFilters,
     toggleMarketplaceFilter,
-    dateRangeType,
+    dateRange,
     setDateRange,
+    dateField,
+    setDateField,
     clearFilters,
     hideSearch = false,
     title = "Filter Products",
 }: ProductFiltersProps) {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-    const currentRange = dateRangeOptions.find(
-        (opt) => opt.value === dateRangeType
-    );
-    const currentLabel = currentRange?.label || "Select date range";
+    const monthKeys = useMemo(() => recentMonthKeys(12), []);
 
-    const handleDateRangeSelect = (rangeType: DateRangeType) => {
-        setDateRange(rangeType);
+    const currentLabel =
+        dateRange.kind === "preset"
+            ? (dateRangeOptions.find((opt) => opt.value === dateRange.preset)
+                  ?.label ?? "Select date range")
+            : dateRange.kind === "month"
+              ? formatMonthKey(dateRange.month)
+              : "Custom Range";
+
+    const handleDateRangeSelect = (range: DateRangeSelection) => {
+        setDateRange(range);
         setIsDropdownOpen(false);
     };
+
+    const startCustomRange = () => {
+        const now = new Date();
+        handleDateRangeSelect({
+            kind: "custom",
+            start: toDayKey(new Date(now.getFullYear(), now.getMonth(), 1)),
+            end: toDayKey(now),
+        });
+    };
+
+    const optionClass = (isActive: boolean) =>
+        `w-full text-left px-4 py-2 text-sm transition-colors ${
+            isActive
+                ? "bg-accent text-accent-foreground font-medium"
+                : "hover:bg-accent hover:text-accent-foreground"
+        }`;
+    const groupHeaderClass =
+        "px-3 py-2 text-xs font-semibold text-muted-foreground uppercase bg-muted/50 sticky top-0";
+    const inputClass =
+        "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
     return (
         <div className="rounded-lg border bg-card p-6">
@@ -126,7 +162,7 @@ export function ProductFilters({
                                             "Rolling Periods",
                                         ].map((group) => (
                                             <div key={group}>
-                                                <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase bg-muted/50 sticky top-0">
+                                                <div className={groupHeaderClass}>
                                                     {group}
                                                 </div>
                                                 {dateRangeOptions
@@ -134,37 +170,136 @@ export function ProductFilters({
                                                         (opt) =>
                                                             opt.group === group
                                                     )
-                                                    .map((option) => {
-                                                        const isActive =
-                                                            dateRangeType ===
-                                                            option.value;
-                                                        return (
-                                                            <button
-                                                                key={
-                                                                    option.value
-                                                                }
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    handleDateRangeSelect(
+                                                    .map((option) => (
+                                                        <button
+                                                            key={option.value}
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleDateRangeSelect(
+                                                                    {
+                                                                        kind: "preset",
+                                                                        preset: option.value,
+                                                                    }
+                                                                )
+                                                            }
+                                                            className={optionClass(
+                                                                dateRange.kind ===
+                                                                    "preset" &&
+                                                                    dateRange.preset ===
                                                                         option.value
-                                                                    )
-                                                                }
-                                                                className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                                                                    isActive
-                                                                        ? "bg-accent text-accent-foreground font-medium"
-                                                                        : "hover:bg-accent hover:text-accent-foreground"
-                                                                }`}
-                                                            >
-                                                                {option.label}
-                                                            </button>
-                                                        );
-                                                    })}
+                                                            )}
+                                                        >
+                                                            {option.label}
+                                                        </button>
+                                                    ))}
                                             </div>
                                         ))}
+                                        <div>
+                                            <div className={groupHeaderClass}>
+                                                Month
+                                            </div>
+                                            {monthKeys.map((month) => (
+                                                <button
+                                                    key={month}
+                                                    type="button"
+                                                    onClick={() =>
+                                                        handleDateRangeSelect({
+                                                            kind: "month",
+                                                            month,
+                                                        })
+                                                    }
+                                                    className={optionClass(
+                                                        dateRange.kind ===
+                                                            "month" &&
+                                                            dateRange.month ===
+                                                                month
+                                                    )}
+                                                >
+                                                    {formatMonthKey(month)}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div>
+                                            <div className={groupHeaderClass}>
+                                                Custom
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={startCustomRange}
+                                                className={optionClass(
+                                                    dateRange.kind === "custom"
+                                                )}
+                                            >
+                                                Custom Range…
+                                            </button>
+                                        </div>
                                     </div>
                                 </>
                             )}
                         </div>
+                        <div
+                            role="group"
+                            aria-label="Count orders by"
+                            className="mt-2 flex flex-wrap items-center gap-1 text-xs"
+                        >
+                            <span className="mr-1 text-muted-foreground">
+                                Count orders by
+                            </span>
+                            {(
+                                [
+                                    ["orderDate", "Order date"],
+                                    ["fulfillmentDate", "Fulfillment date"],
+                                ] as const
+                            ).map(([value, label]) => (
+                                <button
+                                    key={value}
+                                    type="button"
+                                    aria-pressed={dateField === value}
+                                    onClick={() => setDateField(value)}
+                                    className={`rounded-md px-2 py-0.5 font-medium transition-colors ${
+                                        dateField === value
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                                    }`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        {dateRange.kind === "custom" && (
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                                <label className="text-xs text-muted-foreground">
+                                    From
+                                    <input
+                                        type="date"
+                                        value={dateRange.start}
+                                        max={dateRange.end || undefined}
+                                        onChange={(e) =>
+                                            setDateRange({
+                                                ...dateRange,
+                                                start: e.target.value,
+                                            })
+                                        }
+                                        className={inputClass}
+                                    />
+                                </label>
+                                <label className="text-xs text-muted-foreground">
+                                    To
+                                    <input
+                                        type="date"
+                                        value={dateRange.end}
+                                        min={dateRange.start || undefined}
+                                        onChange={(e) =>
+                                            setDateRange({
+                                                ...dateRange,
+                                                end: e.target.value,
+                                            })
+                                        }
+                                        className={inputClass}
+                                    />
+                                </label>
+                            </div>
+                        )}
                     </div>
 
                     <div className="md:col-span-1">
