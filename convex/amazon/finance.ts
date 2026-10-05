@@ -107,6 +107,107 @@ export async function fetchFinancialEventsForOrder(
     };
 }
 
+type AmazonTransactionBreakdown = {
+    breakdownType?: string;
+    breakdownAmount?: { currencyAmount?: number | string };
+    breakdowns?: AmazonTransactionBreakdown[] | null;
+};
+
+type AmazonTransaction = {
+    transactionType?: string;
+    transactionStatus?: string;
+    postedDate?: string;
+    relatedIdentifiers?: Array<{
+        relatedIdentifierName?: string;
+        relatedIdentifierValue?: string;
+    }>;
+    items?: Array<{
+        breakdowns?: AmazonTransactionBreakdown[] | null;
+        contexts?: Array<{ sku?: string; quantityShipped?: number }>;
+    }>;
+};
+
+// Amazon defers payment on many orders until 7 days after delivery (DD7).
+// Finances v0 omits deferred orders entirely until release, which can take
+// two weeks or more. Finances 2024-06-19 returns them as soon as Amazon posts
+// the shipment, so it is the only way to get fees for recent FBA orders.
+export async function fetchTransactionsForOrder(
+    spApi: AmazonSpApi,
+    orderId: string
+) {
+    const transactions: AmazonTransaction[] = [];
+    let nextToken: unknown;
+
+    do {
+        const response = asSpApiRecord(
+            await spApi.callAPI({
+                operation: "listTransactions",
+                endpoint: "finances",
+                options: { version: "2024-06-19" },
+                query: {
+                    relatedIdentifierName: "ORDER_ID",
+                    relatedIdentifierValue: orderId,
+                    ...(nextToken ? { nextToken } : {}),
+                },
+            })
+        );
+
+        transactions.push(
+            ...((response?.transactions || []) as AmazonTransaction[])
+        );
+        nextToken = response?.nextToken;
+    } while (nextToken);
+
+    return transactions;
+}
+
+/**
+ * Converts 2024-06-19 Shipment transactions into v0-shaped ShipmentEventList
+ * entries so the rest of the import reads them like any other shipment event.
+ *
+ * A deferred order produces two transactions once released: the original
+ * (DEFERRED_RELEASED, posted at shipment) and its release (RELEASED, carrying
+ * a DEFERRED_TRANSACTION_ID). Both describe the same money, so the release
+ * copy is dropped and the original's shipment-time posting date is kept.
+ */
+export function transactionsToShipmentEvents(
+    transactions: AmazonTransaction[],
+    orderId: string
+): AmazonShipmentLikeEvent[] {
+    return transactions
+        .filter(
+            (transaction) =>
+                transaction.transactionType === "Shipment" &&
+                !transaction.relatedIdentifiers?.some(
+                    (identifier) =>
+                        identifier.relatedIdentifierName ===
+                        "DEFERRED_TRANSACTION_ID"
+                )
+        )
+        .map((transaction) => ({
+            AmazonOrderId: orderId,
+            PostedDate: transaction.postedDate,
+            ShipmentItemList: (transaction.items || []).map((item) => {
+                const amazonFees = (item.breakdowns || []).find(
+                    (breakdown) => breakdown.breakdownType === "AmazonFees"
+                );
+                return {
+                    SellerSKU: item.contexts?.find((context) => context.sku)
+                        ?.sku,
+                    ItemFeeList: (amazonFees?.breakdowns || []).map(
+                        (fee) => ({
+                            FeeType: fee.breakdownType,
+                            FeeAmount: {
+                                CurrencyAmount:
+                                    fee.breakdownAmount?.currencyAmount,
+                            },
+                        })
+                    ),
+                };
+            }),
+        }));
+}
+
 export function getEventListCounts(
     financialEvents: AmazonFinancialEvents | null | undefined
 ): Array<{ listName: string; count: number }> {

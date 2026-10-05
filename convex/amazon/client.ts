@@ -10,6 +10,7 @@ export type AmazonSpApi = {
         endpoint?: string;
         path?: Record<string, string>;
         query?: AmazonSpApiQuery;
+        options?: { version?: string };
     }) => Promise<unknown>;
 };
 

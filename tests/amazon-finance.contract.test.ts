@@ -8,6 +8,7 @@ import {
   getPendingImportReason,
   getShipmentLikeEvents,
   mergeFinancialEvents,
+  transactionsToShipmentEvents,
 } from "../convex/amazon/finance";
 
 afterEach(() => vi.useRealTimers());
@@ -164,6 +165,66 @@ describe("Amazon finance contracts", () => {
       ],
       feeSourceLists: ["ShipmentEventList"],
     });
+  });
+
+  it("reads deferred FBA shipment fees from Finances 2024-06-19 transactions", () => {
+    const amount = (currencyAmount: number) => ({ currencyAmount });
+    const shipment = (status: string, postedDate: string, extraIds: string[]) => ({
+      transactionType: "Shipment",
+      transactionStatus: status,
+      postedDate,
+      relatedIdentifiers: [
+        { relatedIdentifierName: "ORDER_ID", relatedIdentifierValue: "113-1" },
+        ...extraIds.map((name) => ({
+          relatedIdentifierName: name,
+          relatedIdentifierValue: "x",
+        })),
+      ],
+      items: [
+        {
+          contexts: [{ sku: "SKU-FBA", quantityShipped: 1 }],
+          breakdowns: [
+            { breakdownType: "ProductCharges", breakdownAmount: amount(19.75) },
+            {
+              breakdownType: "AmazonFees",
+              breakdownAmount: amount(-6.82),
+              breakdowns: [
+                { breakdownType: "FBAPerUnitFulfillmentFee", breakdownAmount: amount(-3.86) },
+                { breakdownType: "Commission", breakdownAmount: amount(-2.96) },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    // A released deferral appears twice; only the original shipment posting counts.
+    const events = transactionsToShipmentEvents(
+      [
+        shipment("DEFERRED_RELEASED", "2026-08-26T01:04:44Z", ["RELEASE_TRANSACTION_ID"]),
+        shipment("RELEASED", "2026-09-06T23:51:41Z", ["DEFERRED_TRANSACTION_ID"]),
+        { transactionType: "Refund", postedDate: "2026-09-10T00:00:00Z" },
+      ],
+      "113-1",
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].PostedDate).toBe("2026-08-26T01:04:44Z");
+
+    const shipmentLikeEvents = getShipmentLikeEvents(
+      { ShipmentEventList: events },
+      "113-1",
+    );
+    expect(extractFBAFeesFromShipmentLikeEvents(shipmentLikeEvents)).toEqual({
+      totalFBAFees: 3.86,
+      fbaFeesBySKU: { "SKU-FBA": 3.86 },
+    });
+    expect(
+      extractItemFeesFromShipmentLikeEvents({
+        shipmentLikeEvents,
+        sellerSKU: "SKU-FBA",
+        isFBA: true,
+      }).feesBreakdown,
+    ).toEqual([["Commission", 2.96]]);
   });
 
   it("keeps pending-reason precedence stable", () => {
