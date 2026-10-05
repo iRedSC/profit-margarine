@@ -46,4 +46,5 @@ export const marketplaceLineItemFields = {
     orderTimestamp: v.number(),
     fulfillmentTimestamp: v.optional(v.number()),
     orderId: v.string(),
+    isFBA: v.optional(v.boolean()),
 };

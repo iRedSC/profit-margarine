@@ -208,6 +208,7 @@ async function upsertPendingMarketplaceImportHandler(
                 reasonCode: args.reasonCode,
                 reasonMessage: args.reasonMessage,
                 rawFinancialEventsStatus: args.rawFinancialEventsStatus,
+                isFBA: args.isFBA,
                 lastAttemptAt: args.lastAttemptAt,
                 resolvedAt: undefined,
             });
@@ -235,6 +236,7 @@ async function upsertPendingMarketplaceImportHandler(
         reasonCode: args.reasonCode,
         reasonMessage: args.reasonMessage,
         rawFinancialEventsStatus: args.rawFinancialEventsStatus,
+        isFBA: args.isFBA,
         lastAttemptAt: args.lastAttemptAt,
     });
 }
@@ -331,6 +333,7 @@ async function upsertMarketplaceProductHandler(
                     tiktokFinanceStatus: args.tiktokFinanceStatus,
                     shippingEstimated: args.shippingEstimated,
                     isPickup: args.isPickup,
+                    isFBA: args.isFBA,
                     fulfillmentDate: args.fulfillmentTimestamp,
                     name: args.name,
                 });
@@ -363,6 +366,7 @@ async function upsertMarketplaceProductHandler(
         tiktokFinanceStatus: args.tiktokFinanceStatus,
         shippingEstimated: args.shippingEstimated,
         isPickup: args.isPickup,
+        isFBA: args.isFBA,
         orderDate: args.orderTimestamp,
         fulfillmentDate: args.fulfillmentTimestamp,
         userId: args.userId,

@@ -92,6 +92,32 @@ export const clearShopifyConnections = internalMutation({
     },
 });
 
+// Rows imported before isFBA existed: FBA orders are the only ones whose
+// shipping was recorded as "FBA Logistics".
+export const markFbaMarketplaceProducts = internalMutation({
+    args: {},
+    handler: async (ctx) => {
+        let updated = 0;
+        const rows = await ctx.db.query("marketplaceProducts").collect();
+
+        for (const row of rows) {
+            if (
+                row.marketplace !== "Amazon" ||
+                row.isFBA ||
+                !row.shipping_breakdown?.some(
+                    ([label]) => label === "FBA Logistics"
+                )
+            ) {
+                continue;
+            }
+            await ctx.db.patch(row._id, { isFBA: true });
+            updated++;
+        }
+
+        return { updated };
+    },
+});
+
 export const runAll = internalAction({
     args: {},
     handler: async (
@@ -109,6 +135,7 @@ export const runAll = internalAction({
             skipped: string[];
             note?: string;
         };
+        fba: { updated: number };
     }> => {
         const orderId: {
             marketplaceProductsUpdated: number;
@@ -128,6 +155,10 @@ export const runAll = internalAction({
             internal.migrations.migrateShopifyConnections,
             {}
         );
-        return { orderId, financial, shopify };
+        const fba: { updated: number } = await ctx.runMutation(
+            internal.migrations.markFbaMarketplaceProducts,
+            {}
+        );
+        return { orderId, financial, shopify, fba };
     },
 });

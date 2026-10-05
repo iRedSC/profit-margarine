@@ -17,10 +17,13 @@ import {
     extractItemFeesFromShipmentLikeEvents,
     fetchFinancialEventsForOrder,
     fetchFulfillmentFromOrderPackages,
+    fetchTransactionsForOrder,
     getPendingImportReason,
     getShipmentLikeEvents,
     hasShipmentFinancialEvents,
+    mergeFinancialEvents,
     summarizeRawFinancialEvents,
+    transactionsToShipmentEvents,
     type AmazonAdjustmentEvent,
     type AmazonFinancialEvents,
 } from "./finance";
@@ -65,8 +68,10 @@ export const processAmazonOrder = internalAction({
             updateExisting: boolean;
             timestamp: string;
             retrySource?: string;
+            financeSource?: string;
             orderData?: {
                 orderStatus?: string;
+                fulfillmentChannel?: string;
                 purchaseDate?: string;
                 orderTimestamp?: number;
                 orderExists?: boolean;
@@ -179,6 +184,7 @@ export const processAmazonOrder = internalAction({
             
             log.orderData = {
                 orderStatus: orderStatus,
+                fulfillmentChannel,
                 purchaseDate: orderResponse.PurchaseDate as string | undefined,
                 orderTimestamp: orderTimestamp,
             };
@@ -274,6 +280,39 @@ export const processAmazonOrder = internalAction({
                     error: caughtErrorMessage(error),
                     timestamp: new Date().toISOString(),
                 });
+            }
+
+            // Deferred FBA orders are missing from Finances v0 until Amazon
+            // releases the payment, so read their shipment fees from v2024.
+            // FBM orders stay on v0 because their label cost only appears in
+            // the v0 PostageBilling adjustments.
+            if (
+                isFBA &&
+                !hasShipmentFinancialEvents(financialEvents, args.orderId)
+            ) {
+                try {
+                    const transactions = await fetchTransactionsForOrder(
+                        spApi,
+                        args.orderId
+                    );
+                    const shipmentEvents = transactionsToShipmentEvents(
+                        transactions,
+                        args.orderId
+                    );
+                    if (shipmentEvents.length > 0) {
+                        financialEvents = financialEvents ?? {};
+                        mergeFinancialEvents(financialEvents, {
+                            ShipmentEventList: shipmentEvents,
+                        });
+                        log.financeSource = "finances_2024_06_19";
+                    }
+                } catch (error: unknown) {
+                    log.errors.push({
+                        step: "fetch_finance_transactions",
+                        error: caughtErrorMessage(error),
+                        timestamp: new Date().toISOString(),
+                    });
+                }
             }
 
             const hasShipmentFinancialEventsForOrder = hasShipmentFinancialEvents(
@@ -640,6 +679,7 @@ export const processAmazonOrder = internalAction({
                             orderTimestamp,
                             fulfillmentTimestamp,
                             orderId: args.orderId,
+                            isFBA,
                             reasonCode: pendingImportReason!.reasonCode,
                             reasonMessage: pendingImportReason!.reasonMessage,
                             rawFinancialEventsStatus: {
@@ -679,6 +719,7 @@ export const processAmazonOrder = internalAction({
                         orderTimestamp,
                         fulfillmentTimestamp,
                         orderId: args.orderId,
+                        isFBA,
                         updateExisting: args.updateExisting ?? false,
                         quantity,
                     }

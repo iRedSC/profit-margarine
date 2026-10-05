@@ -41,6 +41,7 @@ function mapMarketplaceProductRow(
             ? { shippingEstimated: true }
             : {}),
         ...(mp.isPickup ? { isPickup: true } : {}),
+        ...(mp.isFBA ? { isFBA: true } : {}),
         orderDate: mp.orderDate,
         fulfillmentDate: mp.fulfillmentDate,
         orderId: resolveOrderId(mp),
@@ -179,6 +180,7 @@ export const listPendingMarketplaceImports = query({
             reasonMessage: pendingImport.reasonMessage,
             lastAttemptAt: pendingImport.lastAttemptAt,
             rawFinancialEventsStatus: pendingImport.rawFinancialEventsStatus,
+            isFBA: pendingImport.isFBA === true,
         }));
         const existingKeys = new Set(
             pendingImports.map((pendingImport) =>
@@ -238,6 +240,7 @@ export const listPendingMarketplaceImports = query({
                         : "This Amazon order is hidden until finance data includes a reliable fulfillment date.",
                 lastAttemptAt: incompleteProduct.orderDate,
                 rawFinancialEventsStatus: undefined,
+                isFBA: incompleteProduct.isFBA === true,
             });
         }
 

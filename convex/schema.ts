@@ -32,6 +32,7 @@ const applicationTables = {
         tiktokFinanceStatus: v.optional(tiktokFinanceStatusValidator),
         shippingEstimated: v.optional(v.boolean()),
         isPickup: v.optional(v.boolean()),
+        isFBA: v.optional(v.boolean()),
         shipping_breakdown: v.optional(breakdownValidator),
         orderDate: v.number(),
         fulfillmentDate: v.optional(v.number()),
@@ -64,6 +65,7 @@ const applicationTables = {
         reasonCode: v.string(),
         reasonMessage: v.string(),
         rawFinancialEventsStatus: v.optional(rawFinancialEventsStatusValidator),
+        isFBA: v.optional(v.boolean()),
         lastAttemptAt: v.number(),
         resolvedAt: v.optional(v.number()),
     })
