@@ -20,6 +20,7 @@ export const processShopifyOrder = internalAction({
         financials: shopifyOrderFinancialsValidator,
         shop: v.string(),
         accessToken: v.string(),
+        includeFulfillmentOrders: v.optional(v.boolean()),
         updateExisting: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
@@ -129,12 +130,16 @@ export const processShopifyOrder = internalAction({
                 company
               }
             }
-            fulfillmentOrders(first: 50) {
+            ${
+                args.includeFulfillmentOrders
+                    ? `fulfillmentOrders(first: 50) {
               nodes {
                 deliveryMethod {
                   methodType
                 }
               }
+            }`
+                    : ""
             }
             shippingLines(first: 20) {
               nodes {
@@ -173,7 +178,9 @@ export const processShopifyOrder = internalAction({
             const order = data.order;
 
             if (!order) {
-                throw new Error(`Order not found: ${args.orderGid}`);
+                throw new Error(
+                    `Shopify returned no order for ${args.orderGid} (deleted, or not visible to this app)`
+                );
             }
 
             const financials = applyShippingLabelEvents(

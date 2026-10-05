@@ -3,6 +3,29 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * TikTok token endpoints answer HTTP 200 even on failure, with a non-zero
+ * `code` and a `message`. Surface those instead of a generic parse error.
+ */
+export function assertTiktokTokenOk(
+    raw: Record<string, unknown>,
+    action: string
+): void {
+    const code = raw.code;
+    if (code === undefined || code === 0 || code === "0") return;
+    const message =
+        typeof raw.message === "string" ? raw.message : "unknown error";
+    const codeLabel =
+        typeof code === "string" || typeof code === "number"
+            ? String(code)
+            : JSON.stringify(code);
+    throw new Error(
+        `TikTok ${action} failed: ${message} (code ${codeLabel}${
+            typeof raw.request_id === "string" ? `, request ${raw.request_id}` : ""
+        })`
+    );
+}
+
+/**
  * TikTok Shop token endpoints wrap credentials in `{ code, data }`.
  * `access_token_expire_in` is a unix timestamp, not a duration.
  */

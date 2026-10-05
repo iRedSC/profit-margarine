@@ -10,6 +10,7 @@ import {
     processWithProgress,
     validateSyncActive,
     finishSync,
+    completeSync,
     isInactiveSyncError,
 } from "../marketplaceUtils";
 import { SyncMessages } from "../syncMessages";
@@ -89,11 +90,14 @@ export const retryPendingAmazonImports = internalAction({
                 return { success: true, ordersProcessed: 0 };
             }
 
-            await processWithProgress(
+            const result = await processWithProgress({
                 ctx,
-                args.syncId,
-                pendingOrderIds,
-                async (orderId: string) => {
+                syncId: args.syncId,
+                marketplace: "amazon",
+                items: pendingOrderIds,
+                orderIdOf: (orderId) => orderId,
+                progressMessage: "Retrying pending Amazon imports...",
+                processor: async (orderId) => {
                     const beforeState = await ctx.runQuery(
                         internal.products.getAmazonOrderImportSummaryByOrderId,
                         {
@@ -130,15 +134,13 @@ export const retryPendingAmazonImports = internalAction({
                         })
                     );
                 },
-                "amazon",
-                "Retrying pending Amazon imports..."
-            );
+            });
 
             await finishSync(
                 ctx,
                 args.syncId,
                 "amazon",
-                `Amazon pending import retry complete: ${pendingOrderIds.length} orders checked`
+                `Amazon pending import retry complete: ${result.total} orders checked${result.failed > 0 ? `, ${result.failed} failed (see Diagnostics)` : ""}`
             );
 
             return { success: true, ordersProcessed: pendingOrderIds.length };
@@ -244,24 +246,24 @@ export const syncAmazonOrders = internalAction({
                 }
             }
 
-            await processWithProgress(
+            const result = await processWithProgress({
                 ctx,
-                args.syncId,
-                allOrders,
-                async (order: { AmazonOrderId: string }, _i) => {
+                syncId: args.syncId,
+                marketplace: "amazon",
+                items: allOrders,
+                orderIdOf: (order) => order.AmazonOrderId,
+                processor: async (order) => {
                     await ctx.runAction(internal.amazon.processAmazonOrder, {
                         userId: args.userId,
                         orderId: order.AmazonOrderId,
                         updateExisting,
                     });
                 },
-                "amazon"
-            );
+            });
 
-            await validateSyncActive(ctx, args.syncId);
-            await finishSync(ctx, args.syncId, "amazon");
+            await completeSync(ctx, args.syncId, "amazon", result);
 
-            return { success: true, ordersProcessed: allOrders.length };
+            return { success: true, ordersProcessed: result.succeeded };
         } catch (error: unknown) {
             if (isInactiveSyncError(error)) {
                 return { success: false, canceled: true };

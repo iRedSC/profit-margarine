@@ -9,7 +9,7 @@ import {
     handleSyncError,
     processWithProgress,
     validateSyncActive,
-    finishSync,
+    completeSync,
     getIncrementalSyncStartDate,
     isInactiveSyncError,
 } from "../marketplaceUtils";
@@ -18,6 +18,10 @@ import {
     fetchShopifyOrderFinancials,
     type ShopifyOrderFinancials,
 } from "./shopifyql";
+import {
+    fetchShopifyAccessScopes,
+    hasFulfillmentOrderScope,
+} from "./graphql";
 
 type SyncResult =
     | { success: boolean; ordersProcessed: number }
@@ -55,6 +59,24 @@ export const syncShopifyOrders = internalAction({
             }
 
             const { shop, accessToken } = connection;
+
+            // Pickup detection reads order.fulfillmentOrders, which needs a
+            // fulfillment-order scope. Requesting it without the scope makes
+            // Shopify null the entire order, so only ask when it's granted.
+            const scopes = await fetchShopifyAccessScopes(shop, accessToken);
+            await ctx.runMutation(
+                internal.shopifyMutations.updateShopifyScopes,
+                { userId: args.userId, scopes: scopes.join(" ") }
+            );
+            const includeFulfillmentOrders = hasFulfillmentOrderScope(scopes);
+            if (!includeFulfillmentOrders) {
+                await ctx.runMutation(internal.diagnostics.recordSyncIssue, {
+                    syncId: args.syncId,
+                    severity: "warning",
+                    message:
+                        "Local pickup orders can't be detected: the Shopify app has no fulfillment-order scope (e.g. read_merchant_managed_fulfillment_orders). Pickup orders may show missing-shipping warnings until it is granted.",
+                });
+            }
 
             // Determine date range
             const endDateObj = args.endDate
@@ -141,11 +163,13 @@ export const syncShopifyOrders = internalAction({
                 })
             );
 
-            await processWithProgress(
+            const result = await processWithProgress({
                 ctx,
-                args.syncId,
-                uniqueOrders,
-                async (orderData, _i) => {
+                syncId: args.syncId,
+                marketplace: "shopify",
+                items: uniqueOrders,
+                orderIdOf: (order) => order.financials.orderId,
+                processor: async (orderData) => {
                     await ctx.runAction(
                         internal.shopify.processShopifyOrder,
                         {
@@ -154,19 +178,16 @@ export const syncShopifyOrders = internalAction({
                             financials: orderData.financials,
                             shop,
                             accessToken,
+                            includeFulfillmentOrders,
                             updateExisting: args.updateExisting ?? false,
                         }
                     );
                 },
-                "shopify"
-            );
+            });
 
-            // Validate sync exists and is active before finishing
-            await validateSyncActive(ctx, args.syncId);
+            await completeSync(ctx, args.syncId, "shopify", result);
 
-            await finishSync(ctx, args.syncId, "shopify");
-
-            return { success: true, ordersProcessed: uniqueOrders.length };
+            return { success: true, ordersProcessed: result.succeeded };
         } catch (error: unknown) {
             // Don't treat cancellation or missing sync as an error - it's expected
             if (isInactiveSyncError(error)) {

@@ -49,8 +49,28 @@ export const storeShopifyConnection = internalMutation({
                 marketplace: "shopify",
                 accessToken: args.accessToken,
                 shopDomain: args.shop,
+                scopes: args.scope,
             }
         );
+    },
+});
+
+/** Keep the stored scope list current; it's checked at the start of each sync. */
+export const updateShopifyScopes = internalMutation({
+    args: {
+        userId: v.id("users"),
+        scopes: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const connection = await ctx.db
+            .query("marketplaceConnections")
+            .withIndex("by_user_and_marketplace", (q) =>
+                q.eq("userId", args.userId).eq("marketplace", "shopify")
+            )
+            .first();
+        if (connection && connection.scopes !== args.scopes) {
+            await ctx.db.patch(connection._id, { scopes: args.scopes });
+        }
     },
 });
 
@@ -76,6 +96,7 @@ export const getShopifyConnection = internalQuery({
         return {
             shop: connection.shopDomain || "",
             accessToken: connection.accessToken,
+            scopes: connection.scopes,
         };
     },
 });

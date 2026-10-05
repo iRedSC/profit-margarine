@@ -16,6 +16,7 @@ export const storeMarketplaceConnection = internalMutation({
         refreshToken: v.optional(v.string()),
         expiresAt: v.optional(v.number()),
         shopDomain: v.optional(v.string()),
+        scopes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const existing = await ctx.db
@@ -33,6 +34,7 @@ export const storeMarketplaceConnection = internalMutation({
             refreshToken?: string;
             expiresAt?: number;
             shopDomain?: string;
+            scopes?: string;
         } = {
             userId: args.userId,
             marketplace: args.marketplace,
@@ -48,6 +50,9 @@ export const storeMarketplaceConnection = internalMutation({
         }
         if (args.shopDomain) {
             connectionData.shopDomain = args.shopDomain;
+        }
+        if (args.scopes) {
+            connectionData.scopes = args.scopes;
         }
 
         if (existing) {

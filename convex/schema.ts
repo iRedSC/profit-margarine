@@ -5,6 +5,7 @@ import {
     breakdownValidator,
     productMarketplaceValidator,
     rawFinancialEventsStatusValidator,
+    syncMarketplaceValidator,
     tiktokFinanceStatusValidator,
 } from "./lib/validators";
 
@@ -76,12 +77,7 @@ const applicationTables = {
 
     syncs: defineTable({
         userId: v.id("users"),
-        marketplace: v.union(
-            v.literal("amazon"),
-            v.literal("ebay"),
-            v.literal("shopify"),
-            v.literal("tiktok")
-        ),
+        marketplace: syncMarketplaceValidator,
         status: v.union(
             v.literal("active"),
             v.literal("canceled"),
@@ -93,6 +89,8 @@ const applicationTables = {
         startedAt: v.number(),
         finishedAt: v.optional(v.number()),
         error: v.optional(v.string()),
+        // Orders that failed individually while the sync kept going.
+        failedCount: v.optional(v.number()),
     })
         .index("by_user", ["userId"])
         .index("by_user_and_status", ["userId", "status"])
@@ -123,8 +121,23 @@ const applicationTables = {
         refreshToken: v.optional(v.string()),
         shopDomain: v.optional(v.string()),
         expiresAt: v.optional(v.number()),
+        // Space/comma separated scopes granted at install (Shopify).
+        scopes: v.optional(v.string()),
         connectedAt: v.number(),
     }).index("by_user_and_marketplace", ["userId", "marketplace"]),
+
+    // Per-order failures and sync-level warnings, shown on the Diagnostics page.
+    syncIssues: defineTable({
+        userId: v.id("users"),
+        syncId: v.id("syncs"),
+        marketplace: syncMarketplaceValidator,
+        severity: v.union(v.literal("error"), v.literal("warning")),
+        orderId: v.optional(v.string()),
+        message: v.string(),
+        createdAt: v.number(),
+    })
+        .index("by_sync", ["syncId"])
+        .index("by_user_and_marketplace", ["userId", "marketplace"]),
 };
 
 export default defineSchema({

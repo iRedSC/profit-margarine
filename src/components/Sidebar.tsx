@@ -1,6 +1,9 @@
-import { AlertTriangle, BarChart3, LayoutDashboard, Settings } from "lucide-react";
+import { Activity, BarChart3, LayoutDashboard, Settings } from "lucide-react";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import {
   Sidebar,
+  SidebarMenuBadge,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
@@ -19,6 +22,7 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({ selectedView, onViewChange }: AppSidebarProps) {
+  const attentionCount = useQuery(api.diagnostics.getAttentionCount) ?? 0;
   const navigationItems = [
     {
       id: "products",
@@ -36,9 +40,10 @@ export function AppSidebar({ selectedView, onViewChange }: AppSidebarProps) {
       icon: Settings,
     },
     {
-      id: "errors",
-      label: "Errors",
-      icon: AlertTriangle,
+      id: "diagnostics",
+      label: "Diagnostics",
+      icon: Activity,
+      badge: attentionCount > 0 ? attentionCount : undefined,
     },
   ];
 
@@ -73,6 +78,14 @@ export function AppSidebar({ selectedView, onViewChange }: AppSidebarProps) {
                       <Icon />
                       <span>{item.label}</span>
                     </SidebarMenuButton>
+                    {"badge" in item && item.badge !== undefined && (
+                      <SidebarMenuBadge
+                        className="bg-red-600 text-white"
+                        title={`${item.badge} marketplace sync${item.badge === 1 ? "" : "s"} need attention`}
+                      >
+                        {item.badge}
+                      </SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 );
               })}

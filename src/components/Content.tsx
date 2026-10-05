@@ -6,7 +6,7 @@ import { ProductAnalyzer } from "./ProductAnalyzer";
 import { EbayConnect } from "./EbayConnect";
 import { ShopifyConnect } from "./ShopifyConnect";
 import { TiktokConnect } from "./TiktokConnect";
-import { PendingAmazonImportsCard } from "./PendingAmazonImportsCard";
+import { DiagnosticsView } from "./DiagnosticsView";
 import { StatsDashboard } from "./StatsDashboard";
 
 type ContentProps = {
@@ -52,18 +52,7 @@ export function Content({ selectedView }: ContentProps) {
                         </div>
                     </div>
                 )}
-                {selectedView === "errors" && (
-                    <div className="space-y-6">
-                        <div>
-                            <h2 className="text-3xl font-bold tracking-tight">Errors</h2>
-                            <p className="text-muted-foreground">
-                                Review Amazon imports that are being held out of the
-                                official list until fulfillment or exact fee data arrives.
-                            </p>
-                        </div>
-                        <PendingAmazonImportsCard />
-                    </div>
-                )}
+                {selectedView === "diagnostics" && <DiagnosticsView />}
             </Authenticated>
             <Unauthenticated>
                 <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">

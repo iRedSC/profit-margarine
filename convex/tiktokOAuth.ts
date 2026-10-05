@@ -8,7 +8,11 @@ import {
     parseOAuthTokenJson,
     requireTokenString,
 } from "./lib/oauthHttp";
-import { tokenExpiresAtMs, unwrapTokenPayload } from "./tiktok/token";
+import {
+    assertTiktokTokenOk,
+    tokenExpiresAtMs,
+    unwrapTokenPayload,
+} from "./tiktok/token";
 
 function refreshTokenOrFallback(
     value: unknown,
@@ -54,6 +58,7 @@ export const exchangeCodeForToken = internalAction({
             response,
             "Failed to exchange code for token"
         );
+        assertTiktokTokenOk(raw, "authorization");
         const data = unwrapTokenPayload(raw);
         const accessToken = requireTokenString(data, "access_token");
         const refreshToken = optionalTokenString(data, "refresh_token");
@@ -100,10 +105,10 @@ export const refreshAccessToken = internalAction({
             );
         }
 
-        // Refresh the access token
-        // TikTok Shop API uses GET request with query parameters
+        // Refreshing uses /token/refresh. /token/get only accepts auth codes
+        // and answers a refresh request with "invalid params" (98001004).
         const tokenUrl = new URL(
-            "https://auth.tiktok-shops.com/api/v2/token/get"
+            "https://auth.tiktok-shops.com/api/v2/token/refresh"
         );
         tokenUrl.searchParams.set("app_key", clientKey);
         tokenUrl.searchParams.set("app_secret", clientSecret);
@@ -118,6 +123,7 @@ export const refreshAccessToken = internalAction({
             response,
             "Failed to refresh token"
         );
+        assertTiktokTokenOk(raw, "token refresh");
         const data = unwrapTokenPayload(raw);
         const accessToken = requireTokenString(data, "access_token");
         const refreshToken = refreshTokenOrFallback(

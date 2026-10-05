@@ -10,6 +10,7 @@ import {
     shouldReportProgress,
 } from "./lib/concurrency";
 import { getIncrementalSyncStart } from "./lib/syncWindow";
+import { cleanErrorMessage } from "./lib/errorText";
 
 const ORDER_CONCURRENCY: Record<MarketplaceType, number> = {
     amazon: 3,
@@ -179,7 +180,7 @@ export async function handleSyncError(
 ): Promise<void> {
     const marketplaceName =
         marketplace.charAt(0).toUpperCase() + marketplace.slice(1);
-    const message = getErrorMessage(error);
+    const message = cleanErrorMessage(error);
     const log = {
         operation: "sync_orders",
         marketplace: marketplaceName,
@@ -194,18 +195,39 @@ export async function handleSyncError(
     throw error;
 }
 
+export type ProcessResult = {
+    total: number;
+    succeeded: number;
+    failed: number;
+};
+
+// If this many orders fail before any succeed, the problem is systemic
+// (bad token, missing scope, API outage), so stop instead of hammering the API.
+const SYSTEMIC_FAILURE_THRESHOLD = 10;
+
 /**
- * Process items with progress tracking
+ * Process items with progress tracking.
+ *
+ * A failing item is recorded as a sync issue (visible on the Diagnostics page)
+ * and the sync continues. Cancellation still stops the sync immediately.
  */
-export async function processWithProgress<T>(
-    ctx: ActionCtx,
-    syncId: Id<"syncs">,
-    items: T[],
-    processor: (item: T, index: number) => Promise<void>,
-    marketplace: MarketplaceType,
-    progressMessage?: string
-) {
-    const message = progressMessage || SyncMessages.processing(marketplace);
+export async function processWithProgress<T>(args: {
+    ctx: ActionCtx;
+    syncId: Id<"syncs">;
+    marketplace: MarketplaceType;
+    items: T[];
+    orderIdOf: (item: T) => string;
+    processor: (item: T) => Promise<void>;
+    progressMessage?: string;
+}): Promise<ProcessResult> {
+    const { ctx, syncId, marketplace, items } = args;
+    const message = args.progressMessage || SyncMessages.processing(marketplace);
+    const result: ProcessResult = {
+        total: items.length,
+        succeeded: 0,
+        failed: 0,
+    };
+    let lastError = "";
 
     await updateSyncProgress(ctx, syncId, message, {
         current: 0,
@@ -218,9 +240,30 @@ export async function processWithProgress<T>(
     await runWithConcurrency({
         items,
         concurrency: ORDER_CONCURRENCY[marketplace],
-        process: async (item, index) => {
+        process: async (item) => {
             await pendingProgressUpdate;
-            await processor(item, index);
+            if (
+                result.succeeded === 0 &&
+                result.failed >= SYSTEMIC_FAILURE_THRESHOLD
+            ) {
+                throw new Error(
+                    `Stopped after the first ${result.failed} orders all failed. Last error: ${lastError}`
+                );
+            }
+            try {
+                await args.processor(item);
+                result.succeeded += 1;
+            } catch (error: unknown) {
+                if (isInactiveSyncError(error)) throw error;
+                lastError = cleanErrorMessage(error);
+                result.failed += 1;
+                await ctx.runMutation(internal.diagnostics.recordSyncIssue, {
+                    syncId,
+                    severity: "error",
+                    orderId: args.orderIdOf(item),
+                    message: lastError,
+                });
+            }
             completed += 1;
 
             if (
@@ -243,4 +286,33 @@ export async function processWithProgress<T>(
             await pendingProgressUpdate;
         },
     });
+
+    return result;
+}
+
+/**
+ * Finish a sync from its per-order results. If every order failed, the sync is
+ * marked failed so the incremental window does not advance past those orders.
+ */
+export async function completeSync(
+    ctx: ActionCtx,
+    syncId: Id<"syncs">,
+    marketplace: MarketplaceType,
+    result: ProcessResult
+): Promise<void> {
+    await validateSyncActive(ctx, syncId);
+    if (result.failed > 0 && result.succeeded === 0) {
+        await failSync(
+            ctx,
+            syncId,
+            `All ${result.failed} orders failed. See Diagnostics for per-order errors.`,
+            marketplace
+        );
+        return;
+    }
+    const message =
+        result.failed > 0
+            ? `${SyncMessages.complete(marketplace)} (${result.failed} of ${result.total} orders failed, see Diagnostics)`
+            : SyncMessages.complete(marketplace);
+    await finishSync(ctx, syncId, marketplace, message);
 }

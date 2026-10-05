@@ -8,7 +8,7 @@ import {
     handleSyncError,
     processWithProgress,
     validateSyncActive,
-    finishSync,
+    completeSync,
     getIncrementalSyncStartDate,
     isInactiveSyncError,
 } from "../marketplaceUtils";
@@ -20,6 +20,7 @@ import {
 } from "./client";
 import { isRecord } from "./token";
 import { tiktokString } from "./parse";
+import { cleanErrorMessage } from "../lib/errorText";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -168,16 +169,11 @@ export const syncTiktokOrders = internalAction({
                         pageToken = page.nextPageToken;
                     } while (pageToken);
                 } catch (error: unknown) {
-                    console.error(
-                        JSON.stringify({
-                            operation: "tiktok_unsettled_fetch_failed",
-                            shopId: shop.id,
-                            error:
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                        })
-                    );
+                    await ctx.runMutation(internal.diagnostics.recordSyncIssue, {
+                        syncId: args.syncId,
+                        severity: "warning",
+                        message: `Couldn't load unsettled TikTok finance data for shop ${shop.id}; fees for unsettled orders will be estimated. ${cleanErrorMessage(error)}`,
+                    });
                 }
             }
             console.error(
@@ -188,43 +184,31 @@ export const syncTiktokOrders = internalAction({
                     unsettledFinanceCount: unsettledByOrder.size,
                 })
             );
-            let processedCount = 0;
-
-            await processWithProgress(
+            const result = await processWithProgress({
                 ctx,
-                args.syncId,
-                uniqueOrders,
-                async (order) => {
-                    try {
-                        await ctx.runAction(internal.tiktok.processTiktokOrder, {
-                            userId: args.userId,
-                            orderId: order.orderId,
-                            accessToken: api.accessToken,
-                            shopCipher: order.shopCipher,
-                            unsettledFinanceJson: unsettledByOrder.has(
-                                order.orderId
-                            )
-                                ? JSON.stringify(
-                                      unsettledByOrder.get(order.orderId)
-                                  )
-                                : undefined,
-                            updateExisting: args.updateExisting ?? false,
-                        });
-                        processedCount++;
-                    } catch (error) {
-                        console.error(
-                            `Error processing TikTok order ${order.orderId}:`,
-                            error
-                        );
-                    }
+                syncId: args.syncId,
+                marketplace: "tiktok",
+                items: uniqueOrders,
+                orderIdOf: (order) => order.orderId,
+                processor: async (order) => {
+                    await ctx.runAction(internal.tiktok.processTiktokOrder, {
+                        userId: args.userId,
+                        orderId: order.orderId,
+                        accessToken: api.accessToken,
+                        shopCipher: order.shopCipher,
+                        unsettledFinanceJson: unsettledByOrder.has(
+                            order.orderId
+                        )
+                            ? JSON.stringify(unsettledByOrder.get(order.orderId))
+                            : undefined,
+                        updateExisting: args.updateExisting ?? false,
+                    });
                 },
-                "tiktok"
-            );
+            });
 
-            await validateSyncActive(ctx, args.syncId);
-            await finishSync(ctx, args.syncId, "tiktok");
+            await completeSync(ctx, args.syncId, "tiktok", result);
 
-            return { success: true, ordersProcessed: processedCount };
+            return { success: true, ordersProcessed: result.succeeded };
         } catch (error: unknown) {
             if (isInactiveSyncError(error)) {
                 return { success: false, canceled: true };

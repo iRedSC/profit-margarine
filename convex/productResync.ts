@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { hasFulfillmentOrderScope } from "./shopify/graphql";
 import {
     validateSyncActive,
     handleSyncError,
@@ -100,6 +101,9 @@ async function processOrderByMarketplace(
             financials: orderFinancials,
             shop: connection.shop,
             accessToken: connection.accessToken,
+            includeFulfillmentOrders: hasFulfillmentOrderScope(
+                connection.scopes?.split(/[\s,]+/) ?? []
+            ),
             updateExisting: true,
         });
     }

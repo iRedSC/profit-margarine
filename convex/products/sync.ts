@@ -4,6 +4,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import { SyncMessages } from "../syncMessages";
 import { Doc, Id } from "../_generated/dataModel";
+import { pruneOldSyncIssues } from "../diagnostics";
 
 /**
  * Helper function to initialize sync status for a marketplace
@@ -23,6 +24,7 @@ export async function initializeSyncStatus(
         userId,
         marketplace,
     });
+    await pruneOldSyncIssues(ctx, userId, marketplace);
 
     // Create new sync record
     const syncMessage = SyncMessages.starting(marketplace);

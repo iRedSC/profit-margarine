@@ -9,7 +9,7 @@ import {
     handleSyncError,
     processWithProgress,
     validateSyncActive,
-    finishSync,
+    completeSync,
     getIncrementalSyncStartDate,
     isInactiveSyncError,
 } from "../marketplaceUtils";
@@ -133,12 +133,18 @@ export const syncEbayOrders = internalAction({
                                 },
                             }
                         );
+                        const text = await response.text();
                         if (!response.ok) {
                             throw new Error(
-                                `Failed to fetch eBay transactions: ${response.status}`
+                                `eBay getTransactions failed: HTTP ${response.status} ${text.slice(0, 500)}`
                             );
                         }
-                        return await response.json();
+                        if (!text) {
+                            throw new Error(
+                                `eBay getTransactions returned an empty body (HTTP ${response.status}, offset ${offset})`
+                            );
+                        }
+                        return JSON.parse(text);
                     },
                 });
                 allTransactions.push(...transactions);
@@ -168,7 +174,6 @@ export const syncEbayOrders = internalAction({
                 }
             }
 
-            let processedCount = 0;
             const orderIdsArray = Array.from(orderIds);
             const transactionsByOrder = new Map<string, EbayTransaction[]>();
             for (const transaction of allTransactions) {
@@ -180,36 +185,27 @@ export const syncEbayOrders = internalAction({
                 }
             }
 
-            await processWithProgress(
+            const result = await processWithProgress({
                 ctx,
-                args.syncId,
-                orderIdsArray,
-                async (orderId: string, _i: number) => {
-                    try {
-                        await ctx.runAction(internal.ebay.processEbayOrder, {
-                            userId: args.userId,
-                            orderId,
-                            shippingCost: shippingCostsByOrder[orderId] || 0,
-                            accessToken,
-                            allTransactions:
-                                transactionsByOrder.get(orderId) ?? [],
-                            updateExisting: args.updateExisting ?? false,
-                        });
-                        processedCount++;
-                    } catch (error) {
-                        console.error(
-                            `Error processing eBay order ${orderId}:`,
-                            error
-                        );
-                    }
+                syncId: args.syncId,
+                marketplace: "ebay",
+                items: orderIdsArray,
+                orderIdOf: (orderId) => orderId,
+                processor: async (orderId) => {
+                    await ctx.runAction(internal.ebay.processEbayOrder, {
+                        userId: args.userId,
+                        orderId,
+                        shippingCost: shippingCostsByOrder[orderId] || 0,
+                        accessToken,
+                        allTransactions: transactionsByOrder.get(orderId) ?? [],
+                        updateExisting: args.updateExisting ?? false,
+                    });
                 },
-                "ebay"
-            );
+            });
 
-            await validateSyncActive(ctx, args.syncId);
-            await finishSync(ctx, args.syncId, "ebay");
+            await completeSync(ctx, args.syncId, "ebay", result);
 
-            return { success: true, ordersProcessed: processedCount };
+            return { success: true, ordersProcessed: result.succeeded };
         } catch (error: unknown) {
             if (isInactiveSyncError(error)) {
                 return { success: false, canceled: true };
