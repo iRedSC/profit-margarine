@@ -1,5 +1,6 @@
 import { Authenticated, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { useProducts } from "../hooks/useProducts";
 import { SignOutButton } from "../SignOutButton";
 import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
@@ -28,7 +29,7 @@ export function Header() {
     const [importMenuOpen, setImportMenuOpen] = useState(false);
     const [exportMenuOpen, setExportMenuOpen] = useState(false);
     const [isSyncOrderModalOpen, setIsSyncOrderModalOpen] = useState(false);
-    const products = useQuery(api.products.listProducts) || [];
+    const products = useProducts() || [];
     const productCosts = useQuery(api.products.listProductCosts) || [];
     const activeSyncs = useQuery(api.products.getSyncStatus) || [];
     const syncAmazonOrders = useMutation(api.products.syncAmazonOrders);

@@ -104,6 +104,8 @@ export const listProductCosts = query({
     },
 });
 
+const MAX_CONVEX_ARRAY_LENGTH = 8192;
+
 export const listProducts = query({
     args: {},
     handler: async (ctx) => {
@@ -152,7 +154,13 @@ export const listProducts = query({
             result.push(mapMarketplaceProductRow(mp, product));
         }
 
-        return result;
+        // Convex rejects arrays longer than 8192 and there is one row per
+        // order line, so rows go out in chunks. Read them via useProducts().
+        const chunks = [];
+        for (let i = 0; i < result.length; i += MAX_CONVEX_ARRAY_LENGTH) {
+            chunks.push(result.slice(i, i + MAX_CONVEX_ARRAY_LENGTH));
+        }
+        return chunks;
     },
 });
 
