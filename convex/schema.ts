@@ -40,10 +40,18 @@ const applicationTables = {
         orderId: v.optional(v.string()),
         sku: v.optional(v.string()),
         name: v.optional(v.string()),
+        // Last time a scheduled sync asked the marketplace for this order's
+        // final fees/labels. See convex/lib/costCompleteness.ts.
+        costsCheckedAt: v.optional(v.number()),
     })
         .index("by_user", ["userId"])
         .index("by_product", ["productId"])
-        .index("by_order_id", ["orderId"]),
+        .index("by_order_id", ["orderId"])
+        .index("by_user_marketplace_order_date", [
+            "userId",
+            "marketplace",
+            "orderDate",
+        ]),
 
     pendingMarketplaceImports: defineTable({
         userId: v.id("users"),

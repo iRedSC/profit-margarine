@@ -9,9 +9,14 @@ import {
     handleSyncError,
     finishSync,
     getErrorMessage,
+    isInactiveSyncError,
+    processWithProgress,
 } from "./marketplaceUtils";
 import { Id } from "./_generated/dataModel";
-import { productMarketplaceValidator } from "./lib/validators";
+import {
+    productMarketplaceValidator,
+    syncMarketplaceValidator,
+} from "./lib/validators";
 import { getTiktokApiContext } from "./tiktok/client";
 
 async function processOrderByMarketplace(
@@ -336,6 +341,92 @@ export const resyncAllOrdersAction = internalAction({
         } catch (error: unknown) {
             await handleSyncError(ctx, args.syncId, error, "amazon");
             throw error;
+        }
+    },
+});
+
+const PRODUCT_MARKETPLACE = {
+    amazon: "Amazon",
+    ebay: "Ebay",
+    shopify: "Shopify",
+    tiktok: "TikTok",
+} as const;
+
+const DISCOVERY_ACTIONS = {
+    amazon: internal.amazon.syncAmazonOrders,
+    ebay: internal.ebay.syncEbayOrders,
+    shopify: internal.shopify.syncShopifyOrders,
+    tiktok: internal.tiktok.syncTiktokOrders,
+} as const;
+
+/**
+ * Scheduled sync, step 1: re-fetch only the recent orders still missing real
+ * fees or label costs (see lib/costCompleteness.ts). Step 2 hands the same
+ * sync record to the normal incremental sync, which imports new orders and
+ * skips ones already stored.
+ */
+export const refreshIncompleteOrdersAction = internalAction({
+    args: {
+        userId: v.id("users"),
+        syncId: v.id("syncs"),
+        marketplace: syncMarketplaceValidator,
+    },
+    handler: async (ctx, args) => {
+        const marketplace = PRODUCT_MARKETPLACE[args.marketplace];
+        try {
+            await validateSyncActive(ctx, args.syncId);
+            const now = Date.now();
+            const orders = await ctx.runQuery(
+                internal.costRefresh.getOrdersDueForCostRefresh,
+                { userId: args.userId, marketplace, now }
+            );
+
+            if (orders.length > 0) {
+                await processWithProgress({
+                    ctx,
+                    syncId: args.syncId,
+                    marketplace: args.marketplace,
+                    items: orders,
+                    orderIdOf: (order) => order.orderId,
+                    progressMessage: `Checking ${orders.length} orders for final fees and labels...`,
+                    processor: async (order) => {
+                        await validateSyncActive(ctx, args.syncId);
+                        try {
+                            await processOrderByMarketplace(ctx, {
+                                userId: args.userId,
+                                marketplace,
+                                orderId: order.orderId,
+                                orderDate: order.orderDate,
+                            });
+                        } finally {
+                            // Back off even when the marketplace errors, so one
+                            // bad order can't eat every run's budget.
+                            await ctx.runMutation(
+                                internal.costRefresh.markCostsChecked,
+                                {
+                                    userId: args.userId,
+                                    marketplace,
+                                    orderId: order.orderId,
+                                    checkedAt: now,
+                                }
+                            );
+                        }
+                    },
+                });
+            }
+
+            await ctx.scheduler.runAfter(
+                0,
+                DISCOVERY_ACTIONS[args.marketplace],
+                {
+                    userId: args.userId,
+                    syncId: args.syncId,
+                    updateExisting: false,
+                }
+            );
+        } catch (error: unknown) {
+            if (isInactiveSyncError(error)) return;
+            await handleSyncError(ctx, args.syncId, error, args.marketplace);
         }
     },
 });

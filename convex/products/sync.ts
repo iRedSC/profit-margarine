@@ -19,6 +19,16 @@ export async function initializeSyncStatus(
         throw new Error("Not authenticated");
     }
 
+    const syncId = await createSyncRecord(ctx, userId, marketplace);
+    return { userId, syncId };
+}
+
+/** Same as initializeSyncStatus, for callers without an auth session (crons). */
+export async function createSyncRecord(
+    ctx: MutationCtx,
+    userId: Id<"users">,
+    marketplace: Doc<"syncs">["marketplace"]
+): Promise<Id<"syncs">> {
     // Cancel any existing active syncs for this marketplace
     await ctx.runMutation(internal.products.cancelActiveSyncsForMarketplace, {
         userId,
@@ -38,7 +48,7 @@ export async function initializeSyncStatus(
         startedAt: Date.now(),
     });
 
-    return { userId, syncId };
+    return syncId;
 }
 
 export const syncEbayOrders = mutation({
