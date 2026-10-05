@@ -28,7 +28,7 @@ export function Content({ selectedView }: ContentProps) {
     }
 
     return (
-        <div className="mx-auto w-full max-w-screen-xl space-y-4 p-4 md:p-8 pt-6">
+        <div className="mx-auto w-full max-w-[1600px] space-y-4 p-4 md:p-8 pt-6">
             <Authenticated>
                 {selectedView === "products" && (
                     <div className="space-y-4">
