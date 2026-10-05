@@ -3,6 +3,7 @@ import { query, internalQuery, type QueryCtx } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Doc, Id } from "../_generated/dataModel";
 import { AMAZON_ESTIMATED_FEE_LABEL } from "../lib/orderCosts";
+import { isCostRefreshDue } from "../lib/costCompleteness";
 import { syncMarketplaceValidator } from "../lib/validators";
 
 type MarketplaceProductDoc = Doc<"marketplaceProducts">;
@@ -338,10 +339,17 @@ export const getTiktokOrderFinanceState = internalQuery({
             )
             .collect();
 
+        const now = Date.now();
         return {
             exists: rows.length > 0,
             needsFinanceRefresh: rows.some(
-                (row) => row.tiktokFinanceStatus !== "settled"
+                (row) =>
+                    row.tiktokFinanceStatus !== "settled" &&
+                    isCostRefreshDue({
+                        orderDate: row.orderDate,
+                        lastCheckedAt: row.costsCheckedAt ?? row._creationTime,
+                        now,
+                    })
             ),
         };
     },
