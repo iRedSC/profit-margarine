@@ -10,6 +10,7 @@ import { Loader2 } from "lucide-react";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Progress } from "./ui/progress";
 import { SyncOrderModal } from "./SyncOrderModal";
+import { ContextMenu } from "./ContextMenu";
 import {
     IMPORT_CHUNK_SIZE,
     parseDataRowsFromSheet,
@@ -28,6 +29,10 @@ export function Header() {
     } | null>(null);
     const [importMenuOpen, setImportMenuOpen] = useState(false);
     const [exportMenuOpen, setExportMenuOpen] = useState(false);
+    const [exportContextMenu, setExportContextMenu] = useState<{
+        x: number;
+        y: number;
+    } | null>(null);
     const [isSyncOrderModalOpen, setIsSyncOrderModalOpen] = useState(false);
     const products = useProducts() || [];
     const productCosts = useQuery(api.products.listProductCosts) || [];
@@ -138,28 +143,37 @@ export function Header() {
         setContextMenu({ x: e.clientX, y: e.clientY });
     };
 
-    const handleExportData = () => {
+    const exportDataRows = (rows: typeof products, filePrefix: string) => {
         setExportMenuOpen(false);
-        if (products.length === 0) {
+        if (rows.length === 0) {
             toast.error("No data rows to export");
             return;
         }
 
         setIsExporting(true);
         try {
-            const sheetRows = productRowsToExportSheet(products);
+            const sheetRows = productRowsToExportSheet(rows);
             const worksheet = XLSX.utils.json_to_sheet(sheetRows);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
             const dateStamp = new Date().toISOString().slice(0, 10);
-            XLSX.writeFile(workbook, `profitability-data-${dateStamp}.xlsx`);
-            toast.success(`Exported ${products.length} data rows`);
+            XLSX.writeFile(workbook, `${filePrefix}-${dateStamp}.xlsx`);
+            toast.success(`Exported ${rows.length} data rows`);
         } catch (error: unknown) {
             toast.error(`Export failed: ${getErrorMessage(error)}`);
         } finally {
             setIsExporting(false);
         }
     };
+
+    const handleExportData = () =>
+        exportDataRows(products, "profitability-data");
+
+    const handleExportWithoutCost = () =>
+        exportDataRows(
+            products.filter((product) => product.cost === undefined),
+            "profitability-data-missing-cost"
+        );
 
     const handleExportCosts = () => {
         setExportMenuOpen(false);
@@ -418,6 +432,14 @@ export function Header() {
                                 setImportMenuOpen(false);
                                 setExportMenuOpen((open) => !open);
                             }}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                setExportMenuOpen(false);
+                                setExportContextMenu({
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                });
+                            }}
                             disabled={isExporting || isImporting}
                             variant="outline"
                         >
@@ -445,6 +467,20 @@ export function Header() {
                                     Export Costs
                                 </button>
                             </div>
+                        )}
+                        {exportContextMenu && (
+                            <ContextMenu
+                                x={exportContextMenu.x}
+                                y={exportContextMenu.y}
+                                onClose={() => setExportContextMenu(null)}
+                                items={[
+                                    {
+                                        label: "Export All Without Cost",
+                                        onClick: handleExportWithoutCost,
+                                        disabled: isExporting,
+                                    },
+                                ]}
+                            />
                         )}
                     </div>
 
