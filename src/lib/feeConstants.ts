@@ -1,7 +1,9 @@
-/** Mirrors convex/lib/orderCosts.ts labels — keep in sync (avoid importing convex into frontend). */
-export const AMAZON_ESTIMATED_FEE_LABEL = "Amazon Fee (Estimated 15%)";
-export const EBAY_ESTIMATED_FEE_LABEL = "Final Value Fee (Estimated)";
-export const SHOPIFY_TRANSACTION_FEE_PCT_LABEL = "Transaction Fee (2.9%)";
-export const SHOPIFY_TRANSACTION_FEE_FIXED_LABEL =
-  "Transaction Fee (Fixed $0.30)";
-export const TIKTOK_ESTIMATED_FEE_LABEL = "Referral Fee (Estimated 6%)";
+// Single source of truth is the backend, which writes these labels into
+// fee breakdowns. convex/lib/orderCosts.ts is pure, so importing it is safe.
+export {
+  AMAZON_ESTIMATED_FEE_LABEL,
+  EBAY_ESTIMATED_FEE_LABEL,
+  SHOPIFY_TRANSACTION_FEE_FIXED_LABEL,
+  SHOPIFY_TRANSACTION_FEE_PCT_LABEL,
+  TIKTOK_ESTIMATED_FEE_LABEL,
+} from "../../convex/lib/orderCosts";
