@@ -19,7 +19,7 @@ import {
 } from "./lib/validators";
 import { getTiktokApiContext } from "./tiktok/client";
 import { cleanErrorMessage } from "./lib/errorText";
-import { toSyncMarketplace } from "./lib/marketplace";
+import { type ProductMarketplace, toSyncMarketplace } from "./lib/marketplace";
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -116,17 +116,48 @@ async function processOrderByMarketplace(
     }
 
     if (args.marketplace === "TikTok") {
+        // Only the order ID is known here, and an account can authorize
+        // several shops, so ask each shop until one has the order.
         const api = await getTiktokApiContext(ctx, args.userId);
-        return await ctx.runAction(internal.tiktok.processTiktokOrder, {
-            userId: args.userId,
-            orderId: args.orderId,
-            accessToken: api.accessToken,
-            shopCipher: api.shopCipher,
-            updateExisting: true,
-        });
+        for (const shop of api.shops) {
+            const result = await ctx.runAction(
+                internal.tiktok.processTiktokOrder,
+                {
+                    userId: args.userId,
+                    orderId: args.orderId,
+                    accessToken: api.accessToken,
+                    shopCipher: shop.cipher,
+                    updateExisting: true,
+                }
+            );
+            if (!("notFound" in result)) return result;
+        }
+        throw new Error(
+            `TikTok order ${args.orderId} was not found in any authorized shop`
+        );
     }
 
     throw new Error("Unsupported marketplace");
+}
+
+/** A manual success also settles any failure the scheduled retry is holding. */
+async function clearOrderFailure(
+    ctx: ActionCtx,
+    args: {
+        userId: Id<"users">;
+        marketplace: ProductMarketplace;
+        orderId: string;
+    }
+) {
+    await ctx.runMutation(internal.failedOrders.clearOrderFailure, {
+        userId: args.userId,
+        marketplace: toSyncMarketplace(args.marketplace),
+        // Discovery records Shopify orders by numeric ID, not gid://.
+        orderId:
+            args.marketplace === "Shopify"
+                ? (args.orderId.split("/").pop() ?? args.orderId)
+                : args.orderId,
+    });
 }
 
 export const resyncOrderAction = internalAction({
@@ -153,6 +184,7 @@ export const resyncOrderAction = internalAction({
                 orderId: args.orderId,
                 orderDate: mp.orderDate,
             });
+            await clearOrderFailure(ctx, args);
 
             return { success: true };
         } catch (error: unknown) {
@@ -205,6 +237,7 @@ export const syncOrderByIdAction = internalAction({
                         ? "manual_sync_order_by_id"
                         : undefined,
             });
+            await clearOrderFailure(ctx, args);
 
             if (args.marketplace === "Amazon") {
                 const afterState = await ctx.runQuery(
@@ -418,6 +451,9 @@ export const refreshIncompleteOrdersAction = internalAction({
             const orders = [...costRefreshOrders, ...retryOrders];
 
             if (orders.length > 0) {
+                // A run of permanently broken orders here must not stop the
+                // discovery step below. If the cause really is systemic (bad
+                // token), discovery fails on its own and reports it.
                 await processWithProgress({
                     ctx,
                     userId: args.userId,
@@ -451,6 +487,13 @@ export const refreshIncompleteOrdersAction = internalAction({
                             }
                         }
                     },
+                }).catch(async (error: unknown) => {
+                    if (isInactiveSyncError(error)) throw error;
+                    await ctx.runMutation(internal.diagnostics.recordSyncIssue, {
+                        syncId: args.syncId,
+                        severity: "warning",
+                        message: `Stopped rechecking stored and failed orders: ${cleanErrorMessage(error)}`,
+                    });
                 });
             }
 

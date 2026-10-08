@@ -92,7 +92,12 @@ export const processTiktokOrder = internalAction({
                 log.skipped = true;
                 log.skippedReason = "Order detail not found";
                 console.error(JSON.stringify(log));
-                return { success: true, itemsProcessed: 0, skipped: true };
+                return {
+                    success: true,
+                    itemsProcessed: 0,
+                    skipped: true,
+                    notFound: true,
+                };
             }
 
             const status = asString(
