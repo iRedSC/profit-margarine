@@ -92,6 +92,7 @@ export const retryPendingAmazonImports = internalAction({
 
             const result = await processWithProgress({
                 ctx,
+                userId: args.userId,
                 syncId: args.syncId,
                 marketplace: "amazon",
                 items: pendingOrderIds,
@@ -251,6 +252,7 @@ export const syncAmazonOrders = internalAction({
 
             const result = await processWithProgress({
                 ctx,
+                userId: args.userId,
                 syncId: args.syncId,
                 marketplace: "amazon",
                 items: allOrders,

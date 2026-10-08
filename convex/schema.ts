@@ -152,6 +152,17 @@ const applicationTables = {
     })
         .index("by_sync", ["syncId"])
         .index("by_user_and_marketplace", ["userId", "marketplace"]),
+
+    // Orders that failed to import and haven't succeeded since. A sync's
+    // window moves past them, so the scheduled sync retries them from here.
+    failedOrders: defineTable({
+        userId: v.id("users"),
+        marketplace: syncMarketplaceValidator,
+        orderId: v.string(),
+        attempts: v.number(),
+        lastAttemptAt: v.number(),
+        lastError: v.string(),
+    }).index("by_user_marketplace_order", ["userId", "marketplace", "orderId"]),
 };
 
 export default defineSchema({

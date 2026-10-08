@@ -186,6 +186,7 @@ export const syncTiktokOrders = internalAction({
             );
             const result = await processWithProgress({
                 ctx,
+                userId: args.userId,
                 syncId: args.syncId,
                 marketplace: "tiktok",
                 items: uniqueOrders,

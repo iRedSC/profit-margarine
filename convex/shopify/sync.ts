@@ -165,6 +165,7 @@ export const syncShopifyOrders = internalAction({
 
             const result = await processWithProgress({
                 ctx,
+                userId: args.userId,
                 syncId: args.syncId,
                 marketplace: "shopify",
                 items: uniqueOrders,
