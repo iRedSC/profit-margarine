@@ -19,7 +19,7 @@ import {
 } from "./lib/validators";
 import { getTiktokApiContext } from "./tiktok/client";
 import { cleanErrorMessage } from "./lib/errorText";
-import { toSyncMarketplace } from "./lib/marketplace";
+import { type ProductMarketplace, toSyncMarketplace } from "./lib/marketplace";
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -116,17 +116,52 @@ async function processOrderByMarketplace(
     }
 
     if (args.marketplace === "TikTok") {
+        // Only the order ID is known here, and an account can authorize
+        // several shops, so ask each shop until one has the order.
         const api = await getTiktokApiContext(ctx, args.userId);
-        return await ctx.runAction(internal.tiktok.processTiktokOrder, {
-            userId: args.userId,
-            orderId: args.orderId,
-            accessToken: api.accessToken,
-            shopCipher: api.shopCipher,
-            updateExisting: true,
-        });
+        for (const shop of api.shops) {
+            const result = await ctx.runAction(
+                internal.tiktok.processTiktokOrder,
+                {
+                    userId: args.userId,
+                    orderId: args.orderId,
+                    accessToken: api.accessToken,
+                    shopCipher: shop.cipher,
+                    updateExisting: true,
+                }
+            );
+            if (!("notFound" in result)) return result;
+        }
+        throw new Error(
+            `TikTok order ${args.orderId} was not found in any authorized shop`
+        );
     }
 
     throw new Error("Unsupported marketplace");
+}
+
+/**
+ * A full reprocess (updateExisting) settles any failure the scheduled retry is
+ * holding. Discovery runs don't clear failures: they may skip an existing,
+ * incomplete order without repairing it.
+ */
+async function clearOrderFailure(
+    ctx: ActionCtx,
+    args: {
+        userId: Id<"users">;
+        marketplace: ProductMarketplace;
+        orderId: string;
+    }
+) {
+    await ctx.runMutation(internal.failedOrders.clearOrderFailure, {
+        userId: args.userId,
+        marketplace: toSyncMarketplace(args.marketplace),
+        // Discovery records Shopify orders by numeric ID, not gid://.
+        orderId:
+            args.marketplace === "Shopify"
+                ? (args.orderId.split("/").pop() ?? args.orderId)
+                : args.orderId,
+    });
 }
 
 export const resyncOrderAction = internalAction({
@@ -153,6 +188,7 @@ export const resyncOrderAction = internalAction({
                 orderId: args.orderId,
                 orderDate: mp.orderDate,
             });
+            await clearOrderFailure(ctx, args);
 
             return { success: true };
         } catch (error: unknown) {
@@ -205,6 +241,7 @@ export const syncOrderByIdAction = internalAction({
                         ? "manual_sync_order_by_id"
                         : undefined,
             });
+            await clearOrderFailure(ctx, args);
 
             if (args.marketplace === "Amazon") {
                 const afterState = await ctx.runQuery(
@@ -376,10 +413,11 @@ const DISCOVERY_ACTIONS = {
 } as const;
 
 /**
- * Scheduled sync, step 1: re-fetch only the recent orders still missing real
- * fees or label costs (see lib/costCompleteness.ts). Step 2 hands the same
- * sync record to the normal incremental sync, which imports new orders and
- * skips ones already stored.
+ * Scheduled sync, step 1: re-fetch the recent orders still missing real fees
+ * or label costs (see lib/costCompleteness.ts), plus earlier failed orders
+ * that are due for a retry (see failedOrders.ts). Step 2 hands the same sync
+ * record to the normal incremental sync, which imports new orders and skips
+ * ones already stored.
  */
 export const refreshIncompleteOrdersAction = internalAction({
     args: {
@@ -392,19 +430,42 @@ export const refreshIncompleteOrdersAction = internalAction({
         try {
             await validateSyncActive(ctx, args.syncId);
             const now = Date.now();
-            const orders = await ctx.runQuery(
-                internal.costRefresh.getOrdersDueForCostRefresh,
-                { userId: args.userId, marketplace, now }
+            type ScheduledOrder = {
+                orderId: string;
+                orderDate?: number;
+                checkCosts?: true;
+            };
+            const costRefreshOrders: ScheduledOrder[] = (
+                await ctx.runQuery(
+                    internal.costRefresh.getOrdersDueForCostRefresh,
+                    { userId: args.userId, marketplace, now }
+                )
+            ).map((order) => ({ ...order, checkCosts: true as const }));
+            const refreshIds = new Set(
+                costRefreshOrders.map((order) => order.orderId)
             );
+            const retryOrders = (
+                await ctx.runQuery(
+                    internal.failedOrders.getOrderFailuresDueForRetry,
+                    { userId: args.userId, marketplace: args.marketplace, now }
+                )
+            )
+                .filter((orderId) => !refreshIds.has(orderId))
+                .map((orderId): ScheduledOrder => ({ orderId }));
+            const orders = [...costRefreshOrders, ...retryOrders];
 
             if (orders.length > 0) {
+                // A run of permanently broken orders here must not stop the
+                // discovery step below. If the cause really is systemic (bad
+                // token), discovery fails on its own and reports it.
                 await processWithProgress({
                     ctx,
+                    userId: args.userId,
                     syncId: args.syncId,
                     marketplace: args.marketplace,
                     items: orders,
                     orderIdOf: (order) => order.orderId,
-                    progressMessage: `Checking ${orders.length} orders for final fees and labels...`,
+                    progressMessage: `Checking ${orders.length} orders for final fees, labels, and earlier failures...`,
                     processor: async (order) => {
                         await validateSyncActive(ctx, args.syncId);
                         try {
@@ -414,20 +475,34 @@ export const refreshIncompleteOrdersAction = internalAction({
                                 orderId: order.orderId,
                                 orderDate: order.orderDate,
                             });
+                            await clearOrderFailure(ctx, {
+                                userId: args.userId,
+                                marketplace,
+                                orderId: order.orderId,
+                            });
                         } finally {
                             // Back off even when the marketplace errors, so one
                             // bad order can't eat every run's budget.
-                            await ctx.runMutation(
-                                internal.costRefresh.markCostsChecked,
-                                {
-                                    userId: args.userId,
-                                    marketplace,
-                                    orderId: order.orderId,
-                                    checkedAt: now,
-                                }
-                            );
+                            if (order.checkCosts) {
+                                await ctx.runMutation(
+                                    internal.costRefresh.markCostsChecked,
+                                    {
+                                        userId: args.userId,
+                                        marketplace,
+                                        orderId: order.orderId,
+                                        checkedAt: now,
+                                    }
+                                );
+                            }
                         }
                     },
+                }).catch(async (error: unknown) => {
+                    if (isInactiveSyncError(error)) throw error;
+                    await ctx.runMutation(internal.diagnostics.recordSyncIssue, {
+                        syncId: args.syncId,
+                        severity: "warning",
+                        message: `Stopped rechecking stored and failed orders: ${cleanErrorMessage(error)}`,
+                    });
                 });
             }
 

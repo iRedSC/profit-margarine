@@ -209,10 +209,15 @@ const SYSTEMIC_FAILURE_THRESHOLD = 10;
  * Process items with progress tracking.
  *
  * A failing item is recorded as a sync issue (visible on the Diagnostics page)
- * and the sync continues. Cancellation still stops the sync immediately.
+ * and in failedOrders, which the scheduled sync retries even after the sync
+ * window has moved past the order. Only a full reprocess clears it (see
+ * productResync.ts): a discovery run here may just skip the order as
+ * "already exists" without repairing it. The sync continues past failures;
+ * cancellation still stops it immediately.
  */
 export async function processWithProgress<T>(args: {
     ctx: ActionCtx;
+    userId: Id<"users">;
     syncId: Id<"syncs">;
     marketplace: MarketplaceType;
     items: T[];
@@ -250,6 +255,7 @@ export async function processWithProgress<T>(args: {
                     `Stopped after the first ${result.failed} orders all failed. Last error: ${lastError}`
                 );
             }
+            const orderId = args.orderIdOf(item);
             try {
                 await args.processor(item);
                 result.succeeded += 1;
@@ -260,8 +266,14 @@ export async function processWithProgress<T>(args: {
                 await ctx.runMutation(internal.diagnostics.recordSyncIssue, {
                     syncId,
                     severity: "error",
-                    orderId: args.orderIdOf(item),
+                    orderId,
                     message: lastError,
+                });
+                await ctx.runMutation(internal.failedOrders.recordOrderFailure, {
+                    userId: args.userId,
+                    marketplace,
+                    orderId,
+                    error: lastError,
                 });
             }
             completed += 1;
@@ -292,7 +304,8 @@ export async function processWithProgress<T>(args: {
 
 /**
  * Finish a sync from its per-order results. If every order failed, the sync is
- * marked failed so the incremental window does not advance past those orders.
+ * marked failed so the incremental window does not advance. Partial failures
+ * do advance it; those orders are retried from failedOrders instead.
  */
 export async function completeSync(
     ctx: ActionCtx,

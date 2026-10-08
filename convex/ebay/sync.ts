@@ -187,6 +187,7 @@ export const syncEbayOrders = internalAction({
 
             const result = await processWithProgress({
                 ctx,
+                userId: args.userId,
                 syncId: args.syncId,
                 marketplace: "ebay",
                 items: orderIdsArray,

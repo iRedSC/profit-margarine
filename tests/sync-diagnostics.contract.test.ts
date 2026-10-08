@@ -88,29 +88,38 @@ describe("Shopify GraphQL errors", () => {
   });
 });
 
-function fakeCtx() {
+function fakeCtx(initialFailures: string[] = []) {
   const issues: Array<{ orderId?: string; message: string }> = [];
+  const failures = new Set(initialFailures);
   const ctx = {
-    runQuery: vi.fn(async () => ({ status: "active" })),
+    runQuery: vi.fn(async (_ref: unknown, args: Record<string, unknown>) =>
+      "syncId" in args ? { status: "active" } : [...failures],
+    ),
     runMutation: vi.fn(async (_ref: unknown, args: Record<string, unknown>) => {
       if ("severity" in args) {
         issues.push({
           orderId: args.orderId as string | undefined,
           message: args.message as string,
         });
+      } else if ("error" in args) {
+        failures.add(args.orderId as string);
+      } else if ("orderId" in args) {
+        failures.delete(args.orderId as string);
       }
     }),
   } as unknown as ActionCtx;
-  return { ctx, issues };
+  return { ctx, issues, failures };
 }
 
 describe("per-order failure handling", () => {
   const syncId = "sync" as Id<"syncs">;
+  const userId = "user" as Id<"users">;
 
   it("records a failing order and keeps processing the rest", async () => {
     const { ctx, issues } = fakeCtx();
     const result = await processWithProgress({
       ctx,
+      userId,
       syncId,
       marketplace: "shopify",
       items: ["a", "b", "c"],
@@ -124,12 +133,32 @@ describe("per-order failure handling", () => {
     expect(issues).toEqual([{ orderId: "b", message: "boom" }]);
   });
 
+  it("records failures for retry and leaves clearing to a full reprocess", async () => {
+    const { ctx, failures } = fakeCtx(["old"]);
+    await processWithProgress({
+      ctx,
+      userId,
+      syncId,
+      marketplace: "shopify",
+      items: ["old", "new"],
+      orderIdOf: (id) => id,
+      processor: async (id) => {
+        if (id === "new") throw new Error("boom");
+      },
+    });
+
+    // "old" succeeding here may have been an "already exists" skip, so it
+    // stays queued until the scheduled retry reprocesses it.
+    expect([...failures].sort()).toEqual(["new", "old"]);
+  });
+
   it("stops when the first orders all fail, since the cause is systemic", async () => {
     const { ctx } = fakeCtx();
     const processed: number[] = [];
     await expect(
       processWithProgress({
         ctx,
+        userId,
         syncId,
         marketplace: "shopify",
         items: Array.from({ length: 50 }, (_, i) => i),
