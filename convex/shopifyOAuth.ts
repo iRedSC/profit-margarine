@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { parseOAuthTokenJson, requireTokenString } from "./lib/oauthHttp";
+import { requireShopDomain } from "./lib/shopifyDomain";
 
 export const exchangeCodeForToken = internalAction({
     args: {
@@ -20,7 +21,8 @@ export const exchangeCodeForToken = internalAction({
             throw new Error("Shopify OAuth credentials not configured");
         }
 
-        const tokenUrl = `https://${args.shop}/admin/oauth/access_token`;
+        const shop = requireShopDomain(args.shop);
+        const tokenUrl = `https://${shop}/admin/oauth/access_token`;
         const response = await fetch(tokenUrl, {
             method: "POST",
             headers: {
@@ -41,7 +43,7 @@ export const exchangeCodeForToken = internalAction({
         const scope = requireTokenString(data, "scope");
 
         await ctx.runMutation(internal.shopifyMutations.storeShopifyConnection, {
-            shop: args.shop,
+            shop,
             accessToken,
             scope,
             userId: args.userId,

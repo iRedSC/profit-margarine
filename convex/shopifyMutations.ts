@@ -9,6 +9,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import { initializeSyncStatus } from "./products/sync";
 import { createIsConnectedQuery } from "./marketplaceConnections";
+import { requireShopDomain } from "./lib/shopifyDomain";
 
 export const syncShopifyOrders = mutation({
     args: {
@@ -113,6 +114,7 @@ export const completeOAuthFlow = mutation({
         if (!userId) {
             throw new Error("Not authenticated");
         }
+        const shop = requireShopDomain(args.shop);
 
         const siteUrl = process.env.CONVEX_SITE_URL || "";
         await ctx.scheduler.runAfter(
@@ -120,7 +122,7 @@ export const completeOAuthFlow = mutation({
             internal.shopifyOAuth.exchangeCodeForToken,
             {
                 code: args.code,
-                shop: args.shop,
+                shop,
                 redirectUri: `${siteUrl}/shopify/callback`,
                 userId,
             }

@@ -12,16 +12,17 @@ import {
     getErrorMessage,
     jsonError,
 } from "./lib/oauthHttp";
+import { parseShopDomain, requireShopDomain } from "./lib/shopifyDomain";
 
 const http = httpRouter();
 
 const shopifyInstall = createOAuthInstallHandler({
     missingConfigMessage: "Shopify OAuth not configured",
     buildAuthUrl: ({ origin, searchParams }) => {
-        const shop = searchParams.get("shop");
+        const shop = parseShopDomain(searchParams.get("shop") ?? "");
 
         if (!shop) {
-            return jsonError("Missing shop parameter", 400);
+            return jsonError("Missing or invalid shop parameter", 400);
         }
 
         const clientId = process.env.SHOPIFY_CLIENT_ID;
@@ -52,7 +53,7 @@ const shopifyCallback = createOAuthCallbackHandler({
     missingParamsMessage: "Missing required parameters",
     redirectOnProviderError: false,
     buildSuccessRedirect: ({ frontendUrl, searchParams }) =>
-        `${frontendUrl}/?shopify_code=${encodeURIComponent(searchParams.get("code")!)}&shop=${encodeURIComponent(searchParams.get("shop")!)}`,
+        `${frontendUrl}/?shopify_code=${encodeURIComponent(searchParams.get("code")!)}&shop=${encodeURIComponent(requireShopDomain(searchParams.get("shop")!))}`,
     onError: (error, frontendUrl) => {
         console.error(
             JSON.stringify({
