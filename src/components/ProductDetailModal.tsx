@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { toast } from "sonner";
+import { getErrorMessage } from "../lib/errors";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { useMemo, useState } from "react";
@@ -42,7 +44,7 @@ export function ProductDetailModal({
     const updateMarketplaceCost = useMutation(
         api.products.updateMarketplaceCost
     );
-    const resyncOrder = useMutation(api.products.resyncOrder);
+    const resyncOrder = useAction(api.products.resyncOrder);
     const shopDomain = useQuery(api.shopifyMutations.getShopDomain);
 
     const [sortField, setSortField] = useState<SortField>("fulfillmentDate");
@@ -105,8 +107,9 @@ export function ProductDetailModal({
     const handleResyncOrder = async (id: Id<"marketplaceProducts">) => {
         try {
             await resyncOrder({ marketplaceProductId: id });
-        } catch {
-            // Optionally show an error message
+            toast.success("Order resynced");
+        } catch (error: unknown) {
+            toast.error(`Resync failed: ${getErrorMessage(error)}`);
         }
     };
 

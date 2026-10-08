@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 import {
@@ -32,7 +32,7 @@ export function SyncOrderModal({ open, onOpenChange }: SyncOrderModalProps) {
     const [marketplace, setMarketplace] = useState<Marketplace>("Amazon");
     const [orderId, setOrderId] = useState("");
     const [isSyncing, setIsSyncing] = useState(false);
-    const syncOrderById = useMutation(api.products.syncOrderById);
+    const syncOrderById = useAction(api.products.syncOrderById);
 
     const handleSync = async () => {
         if (!orderId.trim()) {
@@ -46,7 +46,7 @@ export function SyncOrderModal({ open, onOpenChange }: SyncOrderModalProps) {
                 marketplace,
                 orderId: orderId.trim(),
             });
-            toast.success(`Successfully started syncing ${marketplace} order: ${orderId.trim()}`);
+            toast.success(`Synced ${marketplace} order ${orderId.trim()}`);
             setOrderId("");
             onOpenChange(false);
         } catch (error: unknown) {

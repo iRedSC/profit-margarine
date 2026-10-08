@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useMutation } from "convex/react";
+import { useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Toaster, toast } from "sonner";
 import { Header } from "./components/Header";
@@ -16,9 +16,9 @@ import {
 
 export default function App() {
     const [selectedView, setSelectedView] = useState("products");
-    const completeEbayOAuth = useMutation(api.ebayMutations.completeOAuthFlow);
-    const completeTiktokOAuth = useMutation(api.tiktokMutations.completeOAuthFlow);
-    const completeShopifyOAuth = useMutation(api.shopifyMutations.completeOAuthFlow);
+    const completeEbayOAuth = useAction(api.ebayMutations.completeOAuthFlow);
+    const completeTiktokOAuth = useAction(api.tiktokMutations.completeOAuthFlow);
+    const completeShopifyOAuth = useAction(api.shopifyMutations.completeOAuthFlow);
     const { selectionBox, copiedState } = useAltDragSelection();
 
     // Check for OAuth callback success/error

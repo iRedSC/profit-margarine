@@ -8,6 +8,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MarketplaceType } from "./marketplaceConnections";
 import { cleanErrorMessage } from "./lib/errorText";
+import { syncMarketplaceValidator } from "./lib/validators";
 
 const MARKETPLACES: MarketplaceType[] = ["shopify", "tiktok", "ebay", "amazon"];
 const MAX_ISSUES_PER_SYNC = 200;
@@ -21,6 +22,9 @@ export const recordSyncIssue = internalMutation({
         severity: v.union(v.literal("error"), v.literal("warning")),
         orderId: v.optional(v.string()),
         message: v.string(),
+        // The order's own marketplace, when it differs from the sync's
+        // (bulk resync covers every marketplace under one sync record).
+        marketplace: v.optional(syncMarketplaceValidator),
     },
     handler: async (ctx, args) => {
         const sync = await ctx.db.get(args.syncId);
@@ -44,7 +48,7 @@ export const recordSyncIssue = internalMutation({
         await ctx.db.insert("syncIssues", {
             userId: sync.userId,
             syncId: args.syncId,
-            marketplace: sync.marketplace,
+            marketplace: args.marketplace ?? sync.marketplace,
             severity: args.severity,
             orderId: args.orderId,
             message: args.message,
@@ -223,6 +227,9 @@ export const getOverview = query({
                 // Group the latest sync's issues by message so 600 identical
                 // failures read as one problem with a count.
                 const issueGroups: Array<{
+                    // Where the orders live; retry must go here, not to the
+                    // marketplace whose panel shows the group.
+                    marketplace: MarketplaceType;
                     message: string;
                     severity: "error" | "warning";
                     count: number;
@@ -237,10 +244,11 @@ export const getOverview = query({
                         .take(MAX_ISSUES_PER_SYNC);
                     const byMessage = new Map<string, (typeof issueGroups)[number]>();
                     for (const issue of issues) {
-                        const key = `${issue.severity}:${issue.message}`;
+                        const key = `${issue.marketplace}:${issue.severity}:${issue.message}`;
                         let group = byMessage.get(key);
                         if (!group) {
                             group = {
+                                marketplace: issue.marketplace,
                                 message: issue.message,
                                 severity: issue.severity,
                                 count: 0,

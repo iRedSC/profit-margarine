@@ -1,4 +1,4 @@
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -224,7 +224,7 @@ function MarketplaceCard({ data }: { data: MarketplaceDiagnostics }) {
                 )}
                 {check && <CheckResults result={check} />}
                 {data.issueGroups.length > 0 && (
-                    <IssueGroups marketplace={data.marketplace} groups={data.issueGroups} />
+                    <IssueGroups groups={data.issueGroups} />
                 )}
                 {data.recentSyncs.length > 0 && (
                     <div>
@@ -299,20 +299,21 @@ function CheckResults({ result }: { result: CheckResult }) {
 }
 
 function IssueGroups({
-    marketplace,
     groups,
 }: {
-    marketplace: MarketplaceDiagnostics["marketplace"];
     groups: MarketplaceDiagnostics["issueGroups"];
 }) {
-    const syncOrderById = useMutation(api.products.syncOrderById);
+    const syncOrderById = useAction(api.products.syncOrderById);
     const [retrying, setRetrying] = useState<string | null>(null);
 
-    const retry = async (orderId: string) => {
+    const retry = async (
+        groupMarketplace: MarketplaceDiagnostics["marketplace"],
+        orderId: string
+    ) => {
         setRetrying(orderId);
         try {
-            await syncOrderById({ marketplace: ORDER_MARKETPLACE[marketplace], orderId });
-            toast.success(`Retry started for order ${orderId}`);
+            await syncOrderById({ marketplace: ORDER_MARKETPLACE[groupMarketplace], orderId });
+            toast.success(`Order ${orderId} synced`);
         } catch (error: unknown) {
             toast.error(`Retry failed: ${getErrorMessage(error)}`);
         } finally {
@@ -351,7 +352,7 @@ function IssueGroups({
                             {group.orderIds.map((orderId) => (
                                 <button
                                     key={orderId}
-                                    onClick={() => void retry(orderId)}
+                                    onClick={() => void retry(group.marketplace, orderId)}
                                     disabled={retrying !== null}
                                     title="Retry this order"
                                     className="rounded border bg-background px-1.5 py-0.5 font-mono text-xs hover:bg-accent"

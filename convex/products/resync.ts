@@ -1,16 +1,24 @@
 import { v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { action, mutation } from "../_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import { requireUserId } from "../lib/auth";
 
-export const resyncOrder = mutation({
+// Actions, not mutations: the caller waits for the marketplace round trip so
+// its success or error toast reflects what actually happened.
+export const resyncOrder = action({
     args: {
         marketplaceProductId: v.id("marketplaceProducts"),
     },
-    handler: async (ctx, args) => {
-        const userId = await requireUserId(ctx);
+    handler: async (ctx, args): Promise<{ message: string }> => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
 
-        const mp = await ctx.db.get(args.marketplaceProductId);
+        const mp = await ctx.runQuery(internal.products.getMarketplaceProduct, {
+            marketplaceProductId: args.marketplaceProductId,
+        });
         if (!mp || mp.userId !== userId) {
             throw new Error("Marketplace product not found or unauthorized");
         }
@@ -20,23 +28,18 @@ export const resyncOrder = mutation({
             throw new Error("Order ID not found for this product");
         }
 
-        // Schedule the resync action
-        await ctx.scheduler.runAfter(
-            0,
-            internal.productResync.resyncOrderAction,
-            {
-                userId,
-                marketplaceProductId: args.marketplaceProductId,
-                marketplace: mp.marketplace,
-                orderId,
-            }
-        );
+        await ctx.runAction(internal.productResync.resyncOrderAction, {
+            userId,
+            marketplaceProductId: args.marketplaceProductId,
+            marketplace: mp.marketplace,
+            orderId,
+        });
 
-        return { message: "Order resync started" };
+        return { message: "Order resynced" };
     },
 });
 
-export const syncOrderById = mutation({
+export const syncOrderById = action({
     args: {
         marketplace: v.union(
             v.literal("Ebay"),
@@ -46,8 +49,11 @@ export const syncOrderById = mutation({
         ),
         orderId: v.string(),
     },
-    handler: async (ctx, args) => {
-        const userId = await requireUserId(ctx);
+    handler: async (ctx, args): Promise<{ message: string }> => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
 
         if (!args.orderId || args.orderId.trim() === "") {
             throw new Error("Order ID is required");
@@ -63,18 +69,13 @@ export const syncOrderById = mutation({
             })
         );
 
-        // Schedule the sync action
-        await ctx.scheduler.runAfter(
-            0,
-            internal.productResync.syncOrderByIdAction,
-            {
-                userId,
-                marketplace: args.marketplace,
-                orderId: args.orderId.trim(),
-            }
-        );
+        await ctx.runAction(internal.productResync.syncOrderByIdAction, {
+            userId,
+            marketplace: args.marketplace,
+            orderId: args.orderId.trim(),
+        });
 
-        return { message: "Order sync started" };
+        return { message: "Order synced" };
     },
 });
 
@@ -88,6 +89,7 @@ export const resyncAllOrders = mutation({
         const syncId = await ctx.db.insert("syncs", {
             userId,
             marketplace: "amazon",
+            kind: "resyncAll",
             status: "active",
             total: 0,
             complete: 0,
