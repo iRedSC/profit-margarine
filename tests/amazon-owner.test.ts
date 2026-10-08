@@ -12,11 +12,17 @@ describe("Amazon owner", () => {
     delete process.env.AMAZON_OWNER_EMAIL;
   });
 
-  it("matches the configured email case-insensitively", async () => {
-    process.env.AMAZON_OWNER_EMAIL = " Seller@Example.com ";
+  it("matches only the exact configured email", async () => {
+    process.env.AMAZON_OWNER_EMAIL = " seller@example.com ";
     expect(await isAmazonOwner(ctxWithEmail("seller@example.com"), userId)).toBe(true);
     expect(await isAmazonOwner(ctxWithEmail("other@example.com"), userId)).toBe(false);
     expect(await isAmazonOwner(ctxWithEmail(undefined), userId)).toBe(false);
+  });
+
+  it("rejects case and whitespace variants, which are separate accounts", async () => {
+    process.env.AMAZON_OWNER_EMAIL = "seller@example.com";
+    expect(await isAmazonOwner(ctxWithEmail("SELLER@example.com"), userId)).toBe(false);
+    expect(await isAmazonOwner(ctxWithEmail(" seller@example.com"), userId)).toBe(false);
   });
 
   it("allows nobody when unset", async () => {

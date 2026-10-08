@@ -5,14 +5,19 @@ import type { QueryCtx } from "../_generated/server";
 // account, so only one user may import it: the one whose sign-in email is
 // AMAZON_OWNER_EMAIL. Unset means nobody, so a misconfigured deployment
 // fails closed instead of letting every account import the seller's orders.
+//
+// The comparison is exact on purpose. The Password provider stores emails
+// verbatim and only rejects exact duplicates, so "SELLER@example.com" is a
+// separate account from "seller@example.com". Normalizing here would let
+// anyone sign up with a case variant of the owner's email and pass.
 export async function isAmazonOwner(
     ctx: QueryCtx,
     userId: Id<"users">
 ): Promise<boolean> {
-    const ownerEmail = process.env.AMAZON_OWNER_EMAIL?.trim().toLowerCase();
+    const ownerEmail = process.env.AMAZON_OWNER_EMAIL?.trim();
     if (!ownerEmail) return false;
     const user = await ctx.db.get(userId);
-    return user?.email?.trim().toLowerCase() === ownerEmail;
+    return user?.email === ownerEmail;
 }
 
 export async function requireAmazonOwner(
