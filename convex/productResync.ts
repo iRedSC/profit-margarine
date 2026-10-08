@@ -19,6 +19,7 @@ import {
 } from "./lib/validators";
 import { getTiktokApiContext } from "./tiktok/client";
 import { cleanErrorMessage } from "./lib/errorText";
+import { toSyncMarketplace } from "./lib/marketplace";
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -324,7 +325,7 @@ export const resyncAllOrdersAction = internalAction({
                         severity: "error",
                         orderId: order.orderId,
                         message: `${order.marketplace}: ${cleanErrorMessage(error)}`,
-                        marketplace: SYNC_MARKETPLACE[order.marketplace],
+                        marketplace: toSyncMarketplace(order.marketplace),
                     });
                 }
 
@@ -359,13 +360,6 @@ export const resyncAllOrdersAction = internalAction({
         }
     },
 });
-
-const SYNC_MARKETPLACE = {
-    Amazon: "amazon",
-    Ebay: "ebay",
-    Shopify: "shopify",
-    TikTok: "tiktok",
-} as const;
 
 const PRODUCT_MARKETPLACE = {
     amazon: "Amazon",
