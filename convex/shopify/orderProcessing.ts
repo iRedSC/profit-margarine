@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { OrderLine } from "../products/mutations";
 import { getErrorMessage } from "../marketplaceUtils";
 import {
     fetchShopifyGraphQL,
@@ -388,6 +389,7 @@ export const processShopifyOrder = internalAction({
                 shippingPerUnit: number;
                 buyerPaidShippingPerUnit: number;
             }> = [];
+            const orderLines: OrderLine[] = [];
 
             for (const item of lineItems) {
                 const pricePerUnit = parseFloat(
@@ -442,34 +444,34 @@ export const processShopifyOrder = internalAction({
                         ? (shippingPerUnit / totalOrderShipping) * 100
                         : 0;
 
-                await ctx.runMutation(
-                    internal.products.upsertMarketplaceProductUnits,
-                    {
-                        userId: args.userId,
-                        marketplace: "Shopify",
-                        sku,
-                        name,
-                        price: pricePerUnit,
-                        fees: feesPerUnit,
-                        fees_breakdown: feesBreakdownPerUnit,
-                        shipping: shippingPerUnit,
-                        shipping_breakdown:
-                            shippingBreakdown.length > 0
-                                ? shippingBreakdown
-                                : undefined,
-                        shippingPercentage,
-                        buyerPaidShipping: buyerPaidShippingPerUnit,
-                        isPickup,
-                        orderTimestamp,
-                        fulfillmentTimestamp,
-                        orderId,
-                        updateExisting: args.updateExisting ?? false,
-                        quantity,
-                    }
-                );
+                orderLines.push({
+                    sku,
+                    name,
+                    quantity,
+                    price: pricePerUnit,
+                    fees: feesPerUnit,
+                    fees_breakdown: feesBreakdownPerUnit,
+                    shipping: shippingPerUnit,
+                    shipping_breakdown:
+                        shippingBreakdown.length > 0
+                            ? shippingBreakdown
+                            : undefined,
+                    shippingPercentage,
+                    buyerPaidShipping: buyerPaidShippingPerUnit,
+                    isPickup,
+                });
                 log.summary.itemsCreated += quantity;
                 log.summary.itemsProcessed++;
             }
+
+            await ctx.runMutation(internal.products.replaceOrderRows, {
+                userId: args.userId,
+                marketplace: "Shopify",
+                orderId,
+                orderTimestamp,
+                fulfillmentTimestamp,
+                lines: orderLines,
+            });
 
             log.items = logItems;
             console.error(JSON.stringify(log));
