@@ -3,6 +3,7 @@ import { action, mutation } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import { requireUserId } from "../lib/auth";
+import { requireAmazonOwner } from "../lib/amazonOwner";
 
 // Actions, not mutations: the caller waits for the marketplace round trip so
 // its success or error toast reflects what actually happened.
@@ -116,6 +117,7 @@ export const retryPendingAmazonImports = mutation({
     args: {},
     handler: async (ctx) => {
         const userId = await requireUserId(ctx);
+        await requireAmazonOwner(ctx, userId);
 
         console.error(
             JSON.stringify({

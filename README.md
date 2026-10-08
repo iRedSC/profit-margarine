@@ -36,7 +36,7 @@ cp .env.local.example .env.local
 
 #### Optional Variables (for other marketplaces):
 
-- Amazon SP-API credentials
+- Amazon SP-API credentials (`AMAZON_CLIENT_ID`, `AMAZON_CLIENT_SECRET`, `AMAZON_REFRESH_TOKEN`, `AMAZON_REGION`) plus `AMAZON_OWNER_EMAIL`, the exact (case-sensitive) sign-in email of the one account allowed to import that seller's orders. Create that account before setting the variable, so nobody else can register the address first. These are Convex environment variables. Without `AMAZON_OWNER_EMAIL`, nobody can sync Amazon.
 - eBay API credentials
 
 ### 3. Set Up Shopify App (for embedded mode)

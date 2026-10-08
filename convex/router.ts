@@ -2,8 +2,6 @@
 
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
 import { ebayInstall, ebayCallback } from "./ebayRoutes";
 import { tiktokInstall, tiktokCallback } from "./tiktokRoutes";
 import {
@@ -82,72 +80,6 @@ http.route({
     path: "/shopify/callback",
     method: "GET",
     handler: shopifyCallback,
-});
-
-// Amazon webhook endpoint for order fulfillment notifications
-http.route({
-    path: "/amazon/webhook",
-    method: "POST",
-    handler: httpAction(async (ctx, req) => {
-        try {
-            const body = await req.json();
-
-            // Amazon SNS sends different message types
-            if (body.Type === "SubscriptionConfirmation") {
-                return new Response(
-                    JSON.stringify({
-                        message: "Subscription confirmation received",
-                    }),
-                    {
-                        status: 200,
-                        headers: { "Content-Type": "application/json" },
-                    }
-                );
-            }
-
-            if (body.Type === "Notification") {
-                const message = JSON.parse(body.Message);
-
-                if (message.NotificationType === "ORDER_FULFILLMENT") {
-                    const orderId = message.Payload.OrderId;
-                    const userId = "PLACEHOLDER_USER_ID" as Id<"users">;
-
-                    await ctx.runAction(internal.amazon.processAmazonOrder, {
-                        userId,
-                        orderId,
-                    });
-
-                    return new Response(JSON.stringify({ success: true }), {
-                        status: 200,
-                        headers: { "Content-Type": "application/json" },
-                    });
-                }
-            }
-
-            return new Response(
-                JSON.stringify({ message: "Event type not handled" }),
-                {
-                    status: 200,
-                    headers: { "Content-Type": "application/json" },
-                }
-            );
-        } catch (error: unknown) {
-            const log = {
-                endpoint: "/amazon/webhook",
-                step: "process_webhook",
-                error: getErrorMessage(error) || String(error),
-                timestamp: new Date().toISOString(),
-            };
-            console.error(JSON.stringify(log));
-            return new Response(
-                JSON.stringify({ error: "Internal server error" }),
-                {
-                    status: 500,
-                    headers: { "Content-Type": "application/json" },
-                }
-            );
-        }
-    }),
 });
 
 // eBay notification endpoint - POST for receiving notifications
