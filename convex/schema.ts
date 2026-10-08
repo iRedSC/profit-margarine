@@ -101,6 +101,10 @@ const applicationTables = {
         error: v.optional(v.string()),
         // Orders that failed individually while the sync kept going.
         failedCount: v.optional(v.number()),
+        // "resyncAll" re-fetches stored orders of every marketplace and is
+        // filed under "amazon" only for display; it never discovers new
+        // orders, so it must not move a marketplace's sync window.
+        kind: v.optional(v.literal("resyncAll")),
     })
         .index("by_user", ["userId"])
         .index("by_user_and_status", ["userId", "status"])

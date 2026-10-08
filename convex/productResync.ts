@@ -18,6 +18,7 @@ import {
     syncMarketplaceValidator,
 } from "./lib/validators";
 import { getTiktokApiContext } from "./tiktok/client";
+import { cleanErrorMessage } from "./lib/errorText";
 
 async function processOrderByMarketplace(
     ctx: ActionCtx,
@@ -284,6 +285,7 @@ export const resyncAllOrdersAction = internalAction({
             });
 
             let totalProcessed = 0;
+            let failed = 0;
 
             for (const order of ordersToResync) {
                 await validateSyncActive(ctx, args.syncId);
@@ -306,6 +308,8 @@ export const resyncAllOrdersAction = internalAction({
                         }
                     );
                 } catch (error: unknown) {
+                    if (isInactiveSyncError(error)) throw error;
+                    failed += 1;
                     console.error(
                         JSON.stringify({
                             operation: "resync_all_orders",
@@ -315,6 +319,12 @@ export const resyncAllOrdersAction = internalAction({
                             timestamp: new Date().toISOString(),
                         })
                     );
+                    await ctx.runMutation(internal.diagnostics.recordSyncIssue, {
+                        syncId: args.syncId,
+                        severity: "error",
+                        orderId: order.orderId,
+                        message: `${order.marketplace}: ${cleanErrorMessage(error)}`,
+                    });
                 }
 
                 totalProcessed++;
@@ -327,17 +337,21 @@ export const resyncAllOrdersAction = internalAction({
                 });
             }
 
-            await finishSync(
-                ctx,
-                args.syncId,
-                "amazon",
-                `Resync complete: ${totalProcessed} of ${totalOrders} orders processed`
-            );
-            return {
-                message: `Resync complete: ${totalProcessed} of ${totalOrders} orders processed`,
-                totalProcessed,
-                totalOrders,
-            };
+            const succeeded = totalProcessed - failed;
+            const message =
+                failed === 0
+                    ? `Resync complete: ${totalOrders} orders resynced`
+                    : `Resync finished: ${failed} of ${totalOrders} orders failed, see Diagnostics`;
+            if (failed > 0 && succeeded === 0) {
+                await ctx.runMutation(internal.products.failSync, {
+                    syncId: args.syncId,
+                    error: message,
+                    message,
+                });
+            } else {
+                await finishSync(ctx, args.syncId, "amazon", message);
+            }
+            return { message, totalProcessed: succeeded, totalOrders };
         } catch (error: unknown) {
             await handleSyncError(ctx, args.syncId, error, "amazon");
             throw error;

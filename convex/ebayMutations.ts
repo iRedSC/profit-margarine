@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, mutation } from "./_generated/server";
+import { action, internalMutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import { createIsConnectedQuery } from "./marketplaceConnections";
@@ -28,7 +28,7 @@ export const logAccountDeletion = internalMutation({
 
 export const isEbayConnected = createIsConnectedQuery("ebay");
 
-export const completeOAuthFlow = mutation({
+export const completeOAuthFlow = action({
     args: {
         code: v.string(),
     },
@@ -38,14 +38,12 @@ export const completeOAuthFlow = mutation({
             throw new Error("Not authenticated");
         }
 
-        await ctx.scheduler.runAfter(
-            0,
-            internal.ebayOAuth.exchangeCodeForToken,
-            {
-                code: args.code,
-                userId,
-            }
-        );
+        // Await the exchange so the caller only hears "connected" once the
+        // token is actually stored.
+        await ctx.runAction(internal.ebayOAuth.exchangeCodeForToken, {
+            code: args.code,
+            userId,
+        });
 
         return { success: true };
     },

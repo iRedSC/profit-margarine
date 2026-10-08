@@ -492,7 +492,12 @@ export const getLatestSuccessfulSyncStartedAt = internalQuery({
                     .eq("status", "finished")
             )
             .order("desc")
-            .filter((q) => q.eq(q.field("error"), undefined))
+            .filter((q) =>
+                q.and(
+                    q.eq(q.field("error"), undefined),
+                    q.eq(q.field("kind"), undefined)
+                )
+            )
             .first();
 
         return sync?.startedAt;

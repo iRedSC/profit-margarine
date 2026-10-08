@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -12,7 +12,7 @@ export function PendingAmazonImportsCard() {
     const retryPendingAmazonImports = useMutation(
         api.products.retryPendingAmazonImports
     );
-    const syncOrderById = useMutation(api.products.syncOrderById);
+    const syncOrderById = useAction(api.products.syncOrderById);
     const [retryingAll, setRetryingAll] = useState(false);
     const [retryingOrderId, setRetryingOrderId] = useState<string | null>(null);
 
@@ -41,7 +41,7 @@ export function PendingAmazonImportsCard() {
                 marketplace: "Amazon",
                 orderId,
             });
-            toast.success(`Retry started for Amazon order ${orderId}.`);
+            toast.success(`Amazon order ${orderId} synced.`);
         } catch (error: unknown) {
             toast.error(
                 `Failed to retry Amazon order ${orderId}: ${getErrorMessage(error)}`

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import {
+    action,
     mutation,
     internalMutation,
     internalQuery,
@@ -104,7 +105,7 @@ export const getShopifyConnection = internalQuery({
 
 export const isShopifyConnected = createIsConnectedQuery("shopify");
 
-export const completeOAuthFlow = mutation({
+export const completeOAuthFlow = action({
     args: {
         code: v.string(),
         shop: v.string(),
@@ -117,16 +118,14 @@ export const completeOAuthFlow = mutation({
         const shop = requireShopDomain(args.shop);
 
         const siteUrl = process.env.CONVEX_SITE_URL || "";
-        await ctx.scheduler.runAfter(
-            0,
-            internal.shopifyOAuth.exchangeCodeForToken,
-            {
-                code: args.code,
-                shop,
-                redirectUri: `${siteUrl}/shopify/callback`,
-                userId,
-            }
-        );
+        // Await the exchange so the caller only hears "connected" once the
+        // token is actually stored.
+        await ctx.runAction(internal.shopifyOAuth.exchangeCodeForToken, {
+            code: args.code,
+            shop,
+            redirectUri: `${siteUrl}/shopify/callback`,
+            userId,
+        });
 
         return { success: true };
     },

@@ -1,4 +1,4 @@
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -305,14 +305,14 @@ function IssueGroups({
     marketplace: MarketplaceDiagnostics["marketplace"];
     groups: MarketplaceDiagnostics["issueGroups"];
 }) {
-    const syncOrderById = useMutation(api.products.syncOrderById);
+    const syncOrderById = useAction(api.products.syncOrderById);
     const [retrying, setRetrying] = useState<string | null>(null);
 
     const retry = async (orderId: string) => {
         setRetrying(orderId);
         try {
             await syncOrderById({ marketplace: ORDER_MARKETPLACE[marketplace], orderId });
-            toast.success(`Retry started for order ${orderId}`);
+            toast.success(`Order ${orderId} synced`);
         } catch (error: unknown) {
             toast.error(`Retry failed: ${getErrorMessage(error)}`);
         } finally {
