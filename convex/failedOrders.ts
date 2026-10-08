@@ -3,6 +3,11 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import { syncMarketplaceValidator } from "./lib/validators";
 import { isOrderRetryDue } from "./lib/orderRetry";
 
+// Retries share the scheduled run with cost refresh and discovery, so a big
+// backlog (e.g. after an outage) drains over several hourly runs instead of
+// using up one run's time before new orders are discovered.
+const MAX_RETRIES_PER_RUN = 30;
+
 const failureKey = {
     userId: v.id("users"),
     marketplace: syncMarketplaceValidator,
@@ -57,20 +62,6 @@ export const clearOrderFailure = internalMutation({
     },
 });
 
-/** Order IDs with an outstanding failure; a later success must clear these. */
-export const listFailedOrderIds = internalQuery({
-    args: { userId: v.id("users"), marketplace: syncMarketplaceValidator },
-    handler: async (ctx, args) => {
-        const failures = await ctx.db
-            .query("failedOrders")
-            .withIndex("by_user_marketplace_order", (q) =>
-                q.eq("userId", args.userId).eq("marketplace", args.marketplace)
-            )
-            .collect();
-        return failures.map((failure) => failure.orderId);
-    },
-});
-
 export const getOrderFailuresDueForRetry = internalQuery({
     args: {
         userId: v.id("users"),
@@ -86,6 +77,8 @@ export const getOrderFailuresDueForRetry = internalQuery({
             .collect();
         return failures
             .filter((failure) => isOrderRetryDue(failure, args.now))
+            .sort((a, b) => a.lastAttemptAt - b.lastAttemptAt)
+            .slice(0, MAX_RETRIES_PER_RUN)
             .map((failure) => failure.orderId);
     },
 });

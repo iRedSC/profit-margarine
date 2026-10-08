@@ -210,8 +210,10 @@ const SYSTEMIC_FAILURE_THRESHOLD = 10;
  *
  * A failing item is recorded as a sync issue (visible on the Diagnostics page)
  * and in failedOrders, which the scheduled sync retries even after the sync
- * window has moved past the order. A later success clears it. The sync
- * continues past failures; cancellation still stops it immediately.
+ * window has moved past the order. Only a full reprocess clears it (see
+ * productResync.ts): a discovery run here may just skip the order as
+ * "already exists" without repairing it. The sync continues past failures;
+ * cancellation still stops it immediately.
  */
 export async function processWithProgress<T>(args: {
     ctx: ActionCtx;
@@ -231,10 +233,6 @@ export async function processWithProgress<T>(args: {
         failed: 0,
     };
     let lastError = "";
-    const failureKey = { userId: args.userId, marketplace };
-    const outstandingFailures = new Set(
-        await ctx.runQuery(internal.failedOrders.listFailedOrderIds, failureKey)
-    );
 
     await updateSyncProgress(ctx, syncId, message, {
         current: 0,
@@ -261,12 +259,6 @@ export async function processWithProgress<T>(args: {
             try {
                 await args.processor(item);
                 result.succeeded += 1;
-                if (outstandingFailures.delete(orderId)) {
-                    await ctx.runMutation(
-                        internal.failedOrders.clearOrderFailure,
-                        { ...failureKey, orderId }
-                    );
-                }
             } catch (error: unknown) {
                 if (isInactiveSyncError(error)) throw error;
                 lastError = cleanErrorMessage(error);
@@ -278,11 +270,11 @@ export async function processWithProgress<T>(args: {
                     message: lastError,
                 });
                 await ctx.runMutation(internal.failedOrders.recordOrderFailure, {
-                    ...failureKey,
+                    userId: args.userId,
+                    marketplace,
                     orderId,
                     error: lastError,
                 });
-                outstandingFailures.add(orderId);
             }
             completed += 1;
 

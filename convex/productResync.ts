@@ -140,7 +140,11 @@ async function processOrderByMarketplace(
     throw new Error("Unsupported marketplace");
 }
 
-/** A manual success also settles any failure the scheduled retry is holding. */
+/**
+ * A full reprocess (updateExisting) settles any failure the scheduled retry is
+ * holding. Discovery runs don't clear failures: they may skip an existing,
+ * incomplete order without repairing it.
+ */
 async function clearOrderFailure(
     ctx: ActionCtx,
     args: {
@@ -470,6 +474,11 @@ export const refreshIncompleteOrdersAction = internalAction({
                                 marketplace,
                                 orderId: order.orderId,
                                 orderDate: order.orderDate,
+                            });
+                            await clearOrderFailure(ctx, {
+                                userId: args.userId,
+                                marketplace,
+                                orderId: order.orderId,
                             });
                         } finally {
                             // Back off even when the marketplace errors, so one

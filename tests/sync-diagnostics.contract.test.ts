@@ -133,7 +133,7 @@ describe("per-order failure handling", () => {
     expect(issues).toEqual([{ orderId: "b", message: "boom" }]);
   });
 
-  it("keeps failed orders for retry until one succeeds", async () => {
+  it("records failures for retry and leaves clearing to a full reprocess", async () => {
     const { ctx, failures } = fakeCtx(["old"]);
     await processWithProgress({
       ctx,
@@ -147,7 +147,9 @@ describe("per-order failure handling", () => {
       },
     });
 
-    expect([...failures]).toEqual(["new"]);
+    // "old" succeeding here may have been an "already exists" skip, so it
+    // stays queued until the scheduled retry reprocesses it.
+    expect([...failures].sort()).toEqual(["new", "old"]);
   });
 
   it("stops when the first orders all fail, since the cause is systemic", async () => {
