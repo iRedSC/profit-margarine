@@ -38,6 +38,7 @@ export function Header() {
     const productCosts = useQuery(api.products.listProductCosts) || [];
     const activeSyncs = useQuery(api.products.getSyncStatus) || [];
     const syncAmazonOrders = useMutation(api.products.syncAmazonOrders);
+    const canSyncAmazon = useQuery(api.amazonOwner.canSyncAmazon);
     const syncEbayOrders = useMutation(api.products.syncEbayOrders);
     const syncShopifyOrders = useMutation(
         api.shopifyMutations.syncShopifyOrders
@@ -109,7 +110,7 @@ export function Header() {
                 toast.success("Resyncing all orders from existing marketplace products!");
             } else {
                 // Normal sync - fetch new orders from APIs
-                await syncAmazonOrders({});
+                if (canSyncAmazon) await syncAmazonOrders({});
                 await syncEbayOrders({ updateExisting });
                 await syncShopifyOrders({ updateExisting });
                 await syncTiktokOrders({ updateExisting });
@@ -126,7 +127,9 @@ export function Header() {
         setIsSyncing(true);
         setContextMenu(null);
         try {
-            await syncAmazonOrdersOneYear({ updateExisting: true });
+            if (canSyncAmazon) {
+                await syncAmazonOrdersOneYear({ updateExisting: true });
+            }
             await syncEbayOrdersOneYear({});
             await syncShopifyOrdersOneYear({});
             await syncTiktokOrdersOneYear({});

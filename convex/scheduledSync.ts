@@ -2,6 +2,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { createSyncRecord } from "./products/sync";
+import { isAmazonOwner } from "./lib/amazonOwner";
 
 type Marketplace = Doc<"syncs">["marketplace"];
 
@@ -52,16 +53,9 @@ async function connectedMarketplaces(
     const marketplaces: Marketplace[] = connections.map((c) => c.marketplace);
 
     // Amazon credentials are deployment-wide env vars, not a per-user
-    // connection. Only sync it for users who have synced Amazon before, so it
-    // isn't imported into every account.
-    if (process.env.AMAZON_REFRESH_TOKEN) {
-        const priorAmazonSync = await ctx.db
-            .query("syncs")
-            .withIndex("by_user_and_marketplace", (q) =>
-                q.eq("userId", userId).eq("marketplace", "amazon")
-            )
-            .first();
-        if (priorAmazonSync) marketplaces.push("amazon");
+    // connection; only the configured owner syncs them.
+    if (process.env.AMAZON_REFRESH_TOKEN && (await isAmazonOwner(ctx, userId))) {
+        marketplaces.push("amazon");
     }
 
     return marketplaces;

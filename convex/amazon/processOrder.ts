@@ -156,6 +156,9 @@ export const processAmazonOrder = internalAction({
         };
 
         try {
+            await ctx.runQuery(internal.amazonOwner.assertAmazonOwner, {
+                userId: args.userId,
+            });
             const spApi = getSellingPartnerAPI();
 
             // First, get the order details to get the timestamp

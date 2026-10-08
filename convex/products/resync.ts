@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireUserId } from "../lib/auth";
+import { requireAmazonOwner } from "../lib/amazonOwner";
 
 export const resyncOrder = mutation({
     args: {
@@ -114,6 +115,7 @@ export const retryPendingAmazonImports = mutation({
     args: {},
     handler: async (ctx) => {
         const userId = await requireUserId(ctx);
+        await requireAmazonOwner(ctx, userId);
 
         console.error(
             JSON.stringify({

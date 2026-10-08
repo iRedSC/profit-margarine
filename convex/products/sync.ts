@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { SyncMessages } from "../syncMessages";
 import { Doc, Id } from "../_generated/dataModel";
 import { pruneOldSyncIssues } from "../diagnostics";
+import { requireAmazonOwner } from "../lib/amazonOwner";
 
 /**
  * Helper function to initialize sync status for a marketplace
@@ -17,6 +18,9 @@ export async function initializeSyncStatus(
     const userId = await getAuthUserId(ctx);
     if (!userId) {
         throw new Error("Not authenticated");
+    }
+    if (marketplace === "amazon") {
+        await requireAmazonOwner(ctx, userId);
     }
 
     const syncId = await createSyncRecord(ctx, userId, marketplace);

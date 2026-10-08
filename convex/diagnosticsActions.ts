@@ -208,9 +208,10 @@ async function checkEbay(ctx: ActionCtx, userId: Id<"users">, r: CheckRunner) {
     });
 }
 
-async function checkAmazon(r: CheckRunner) {
+async function checkAmazon(ctx: ActionCtx, userId: Id<"users">, r: CheckRunner) {
     let spApi: ReturnType<typeof getSellingPartnerAPI> | undefined;
     await r.step("App credentials", async () => {
+        await ctx.runQuery(internal.amazonOwner.assertAmazonOwner, { userId });
         spApi = getSellingPartnerAPI();
         return `Region ${process.env.AMAZON_REGION}`;
     });
@@ -245,7 +246,7 @@ export const runConnectionCheck = action({
         if (args.marketplace === "shopify") await checkShopify(ctx, userId, runner);
         if (args.marketplace === "tiktok") await checkTiktok(ctx, userId, runner);
         if (args.marketplace === "ebay") await checkEbay(ctx, userId, runner);
-        if (args.marketplace === "amazon") await checkAmazon(runner);
+        if (args.marketplace === "amazon") await checkAmazon(ctx, userId, runner);
         return { steps: runner.steps, ranAt: Date.now() };
     },
 });

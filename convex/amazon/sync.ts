@@ -167,6 +167,9 @@ export const syncAmazonOrders = internalAction({
     handler: async (ctx, args) => {
         try {
             await validateSyncActive(ctx, args.syncId);
+            await ctx.runQuery(internal.amazonOwner.assertAmazonOwner, {
+                userId: args.userId,
+            });
 
             const spApi = getSellingPartnerAPI();
 
