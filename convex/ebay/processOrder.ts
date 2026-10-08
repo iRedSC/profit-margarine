@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { OrderLine } from "../products/mutations";
 import {
     EBAY_ESTIMATED_FEE_LABEL,
     EBAY_ESTIMATED_FEE_RATE,
@@ -643,19 +644,6 @@ export const processEbayOrder = internalAction({
                 return { success: true, itemsProcessed: 0, skipped: true };
             }
 
-            // If updating existing order, delete all existing marketplace products for this order first
-            // This ensures we recreate them all with the correct fees
-            if (args.updateExisting && orderExists) {
-                await ctx.runMutation(
-                    internal.products.deleteMarketplaceProductsByOrder,
-                    {
-                        userId: args.userId,
-                        orderId: args.orderId,
-                        orderDate: orderTimestamp,
-                    }
-                );
-            }
-
             // Calculate total quantity across all line items
             const totalQuantity = lineItems.reduce((sum, item) => {
                 return sum + parseEbayQuantity(item.quantity);
@@ -693,7 +681,8 @@ export const processEbayOrder = internalAction({
                 shippingPerUnit: number;
                 buyerPaidShippingPerUnit: number;
             }> = [];
-            
+            const orderLines: OrderLine[] = [];
+
             for (const lineItem of lineItems) {
                 const lineItemId = asRecordKey(lineItem.lineItemId);
                 const sku =
@@ -772,33 +761,33 @@ export const processEbayOrder = internalAction({
                     buyerPaidShippingPerUnit: buyerPaidShippingPerUnit,
                 });
 
-                await ctx.runMutation(
-                    internal.products.upsertMarketplaceProductUnits,
-                    {
-                        userId: args.userId,
-                        marketplace: "Ebay",
-                        sku,
-                        name: title,
-                        price: pricePerUnit,
-                        fees: feesPerUnit,
-                        fees_breakdown: feesBreakdownPerUnit,
-                        shipping: shippingPerUnit,
-                        shipping_breakdown:
-                            shippingBreakdown.length > 0
-                                ? shippingBreakdown
-                                : undefined,
-                        shippingPercentage,
-                        buyerPaidShipping: buyerPaidShippingPerUnit,
-                        orderTimestamp,
-                        fulfillmentTimestamp,
-                        orderId: args.orderId,
-                        updateExisting: args.updateExisting ?? false,
-                        quantity,
-                    }
-                );
+                orderLines.push({
+                    sku,
+                    name: title,
+                    quantity,
+                    price: pricePerUnit,
+                    fees: feesPerUnit,
+                    fees_breakdown: feesBreakdownPerUnit,
+                    shipping: shippingPerUnit,
+                    shipping_breakdown:
+                        shippingBreakdown.length > 0
+                            ? shippingBreakdown
+                            : undefined,
+                    shippingPercentage,
+                    buyerPaidShipping: buyerPaidShippingPerUnit,
+                });
                 log.summary.itemsCreated += quantity;
                 log.summary.itemsProcessed++;
             }
+
+            await ctx.runMutation(internal.products.replaceOrderRows, {
+                userId: args.userId,
+                marketplace: "Ebay",
+                orderId: args.orderId,
+                orderTimestamp,
+                fulfillmentTimestamp,
+                lines: orderLines,
+            });
 
             log.items = logItems;
             console.error(JSON.stringify(log));

@@ -93,6 +93,9 @@ importers:
       autoprefixer:
         specifier: ~10
         version: 10.5.4(postcss@8.5.26)
+      convex-test:
+        specifier: 0.0.60
+        version: 0.0.60(convex@1.44.0(react@19.2.8))
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -1661,6 +1664,11 @@ packages:
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
+
+  convex-test@0.0.60:
+    resolution: {integrity: sha512-qCAFx+CO6bmpXNc9s1jZvw8NJPS4yM074ib87PUY675FsiaRRW4ALotEB+RbVCYDRMYxh623KMnYZBlrMJIv1Q==}
+    peerDependencies:
+      convex: ^1.43.0
 
   convex@1.44.0:
     resolution: {integrity: sha512-84bBa1ufSX4qohXdycXuQl2c2kAmfVpTCpypcmIgxpS5rUBgv5qjhArYugTkJVbljMs5SH2mW30bjJo+SQwe1w==}
@@ -4529,6 +4537,10 @@ snapshots:
   concat-map@0.0.1: {}
 
   convert-source-map@2.0.0: {}
+
+  convex-test@0.0.60(convex@1.44.0(react@19.2.8)):
+    dependencies:
+      convex: 1.44.0(react@19.2.8)
 
   convex@1.44.0(react@19.2.8):
     dependencies:

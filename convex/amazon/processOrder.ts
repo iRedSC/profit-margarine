@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { OrderLine } from "../products/mutations";
 import {
     AMAZON_ESTIMATED_FEE_LABEL,
     AMAZON_ESTIMATED_FEE_RATE,
@@ -525,6 +526,8 @@ export const processAmazonOrder = internalAction({
             }> = [];
             
             const attemptTimestamp = Date.now();
+            const orderLines: OrderLine[] = [];
+            const pendingSkus: string[] = [];
             for (const item of orderItems) {
                 const price = parseFloat(
                     (item.ItemPrice?.Amount || "0") as string
@@ -658,6 +661,7 @@ export const processAmazonOrder = internalAction({
                 });
 
                 if (shouldQueuePendingImport) {
+                    pendingSkus.push(item.SellerSKU);
                     await ctx.runMutation(
                         internal.products.upsertPendingMarketplaceImport,
                         {
@@ -699,34 +703,35 @@ export const processAmazonOrder = internalAction({
                     continue;
                 }
 
-                await ctx.runMutation(
-                    internal.products.upsertMarketplaceProductUnits,
-                    {
-                        userId: args.userId,
-                        marketplace: "Amazon",
-                        sku: item.SellerSKU,
-                        name: item.Title,
-                        price: pricePerUnit,
-                        fees: feesPerUnit,
-                        fees_breakdown: feesBreakdownPerUnit,
-                        shipping: shippingPerUnit,
-                        shipping_breakdown:
-                            shippingBreakdown.length > 0
-                                ? shippingBreakdown
-                                : undefined,
-                        shippingPercentage,
-                        buyerPaidShipping: buyerPaidShippingPerUnit,
-                        orderTimestamp,
-                        fulfillmentTimestamp,
-                        orderId: args.orderId,
-                        isFBA,
-                        updateExisting: args.updateExisting ?? false,
-                        quantity,
-                    }
-                );
+                orderLines.push({
+                    sku: item.SellerSKU,
+                    name: item.Title,
+                    quantity,
+                    price: pricePerUnit,
+                    fees: feesPerUnit,
+                    fees_breakdown: feesBreakdownPerUnit,
+                    shipping: shippingPerUnit,
+                    shipping_breakdown:
+                        shippingBreakdown.length > 0
+                            ? shippingBreakdown
+                            : undefined,
+                    shippingPercentage,
+                    buyerPaidShipping: buyerPaidShippingPerUnit,
+                    isFBA,
+                });
                 log.summary.itemsCreated += quantity;
                 log.summary.itemsProcessed++;
             }
+
+            await ctx.runMutation(internal.products.replaceOrderRows, {
+                userId: args.userId,
+                marketplace: "Amazon",
+                orderId: args.orderId,
+                orderTimestamp,
+                fulfillmentTimestamp,
+                lines: orderLines,
+                retainSkus: pendingSkus,
+            });
 
             log.items = logItems;
             console.error(JSON.stringify(log));

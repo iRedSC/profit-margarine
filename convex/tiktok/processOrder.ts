@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { OrderLine } from "../products/mutations";
 import { getErrorMessage } from "../marketplaceUtils";
 import { isRecord } from "./token";
 import {
@@ -294,17 +295,7 @@ export const processTiktokOrder = internalAction({
                 buyerPaidShippingTotal
             );
 
-            if (orderState.exists) {
-                await ctx.runMutation(
-                    internal.products.deleteMarketplaceProductsByOrder,
-                    {
-                        userId: args.userId,
-                        orderId: args.orderId,
-                        orderDate: orderTimestamp,
-                    }
-                );
-            }
-
+            const orderLines: OrderLine[] = [];
             for (let i = 0; i < lineItems.length; i++) {
                 const item = lineItems[i];
                 const share = shares[i];
@@ -315,36 +306,36 @@ export const processTiktokOrder = internalAction({
                         ? (shipping / totalOrderShipping) * 100
                         : 0;
 
-                await ctx.runMutation(
-                    internal.products.upsertMarketplaceProductUnits,
-                    {
-                        userId: args.userId,
-                        marketplace: "TikTok",
-                        sku: item.sku,
-                        name: item.name,
-                        price: item.price,
-                        fees: share.fees,
-                        fees_breakdown: share.feesBreakdown,
-                        shipping,
-                        shipping_breakdown: usesOrderShippingEstimate
-                            ? [["TikTok shipping (Estimated)", shipping]]
-                            : share.shippingBreakdown.length > 0
-                              ? share.shippingBreakdown
-                              : undefined,
-                        shippingPercentage,
-                        buyerPaidShipping,
-                        tiktokFinanceStatus: financeStatus,
-                        shippingEstimated,
-                        orderTimestamp,
-                        fulfillmentTimestamp,
-                        orderId: args.orderId,
-                        updateExisting: false,
-                        quantity: item.quantity,
-                    }
-                );
+                orderLines.push({
+                    sku: item.sku,
+                    name: item.name,
+                    quantity: item.quantity,
+                    price: item.price,
+                    fees: share.fees,
+                    fees_breakdown: share.feesBreakdown,
+                    shipping,
+                    shipping_breakdown: usesOrderShippingEstimate
+                        ? [["TikTok shipping (Estimated)", shipping]]
+                        : share.shippingBreakdown.length > 0
+                          ? share.shippingBreakdown
+                          : undefined,
+                    shippingPercentage,
+                    buyerPaidShipping,
+                    tiktokFinanceStatus: financeStatus,
+                    shippingEstimated,
+                });
                 log.itemsCreated += item.quantity;
                 log.itemsProcessed++;
             }
+
+            await ctx.runMutation(internal.products.replaceOrderRows, {
+                userId: args.userId,
+                marketplace: "TikTok",
+                orderId: args.orderId,
+                orderTimestamp,
+                fulfillmentTimestamp,
+                lines: orderLines,
+            });
 
             console.error(JSON.stringify(log));
             return { success: true, itemsProcessed: log.itemsProcessed };

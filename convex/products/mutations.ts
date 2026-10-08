@@ -1,8 +1,9 @@
-import { ObjectType, v } from "convex/values";
+import { type Infer, ObjectType, v } from "convex/values";
 import { mutation, internalMutation, type MutationCtx } from "../_generated/server";
-import { Id } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 import { requireUserId } from "../lib/auth";
 import {
+    breakdownValidator,
     marketplaceLineItemFields,
     productMarketplaceValidator,
     rawFinancialEventsStatusValidator,
@@ -120,30 +121,6 @@ export const deleteMarketplaceProduct = mutation({
     },
 });
 
-export const deleteMarketplaceProductsByOrder = internalMutation({
-    args: {
-        userId: v.id("users"),
-        orderId: v.string(),
-        orderDate: v.number(),
-    },
-    handler: async (ctx, args) => {
-        const existingMarketplaceProducts = await ctx.db
-            .query("marketplaceProducts")
-            .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
-            .filter((q) =>
-                q.and(
-                    q.eq(q.field("userId"), args.userId),
-                    q.eq(q.field("orderDate"), args.orderDate)
-                )
-            )
-            .collect();
-
-        for (const mp of existingMarketplaceProducts) {
-            await ctx.db.delete(mp._id);
-        }
-    },
-});
-
 const upsertPendingMarketplaceImportArgs = {
     userId: v.id("users"),
     marketplace: productMarketplaceValidator,
@@ -162,16 +139,6 @@ const resolvePendingMarketplaceImportArgs = {
     orderTimestamp: v.number(),
     orderId: v.string(),
     fulfillmentTimestamp: v.optional(v.number()),
-};
-
-const upsertMarketplaceProductArgs = {
-    userId: v.id("users"),
-    marketplace: productMarketplaceValidator,
-    ...marketplaceLineItemFields,
-    tiktokFinanceStatus: v.optional(tiktokFinanceStatusValidator),
-    shippingEstimated: v.optional(v.boolean()),
-    isPickup: v.optional(v.boolean()),
-    updateExisting: v.optional(v.boolean()),
 };
 
 async function upsertPendingMarketplaceImportHandler(
@@ -270,140 +237,191 @@ async function resolvePendingMarketplaceImportHandler(
     }
 }
 
-async function upsertMarketplaceProductHandler(
-    ctx: MutationCtx,
-    args: ObjectType<typeof upsertMarketplaceProductArgs>
-) {
-    if (
-        args.shipping === 0 &&
-        !args.fulfillmentTimestamp &&
-        args.marketplace !== "TikTok"
-    ) {
-        return;
-    }
+const orderLineValidator = v.object({
+    sku: v.string(),
+    name: v.string(),
+    quantity: v.number(),
+    // Per-unit amounts; each unit becomes one marketplaceProducts row.
+    price: v.number(),
+    fees: v.number(),
+    fees_breakdown: v.optional(breakdownValidator),
+    shipping: v.number(),
+    shipping_breakdown: v.optional(breakdownValidator),
+    shippingPercentage: v.optional(v.number()),
+    buyerPaidShipping: v.optional(v.number()),
+    tiktokFinanceStatus: v.optional(tiktokFinanceStatusValidator),
+    shippingEstimated: v.optional(v.boolean()),
+    isPickup: v.optional(v.boolean()),
+    isFBA: v.optional(v.boolean()),
+});
 
-    const existingProduct = await ctx.db
+export type OrderLine = Infer<typeof orderLineValidator>;
+
+const replaceOrderRowsArgs = {
+    userId: v.id("users"),
+    marketplace: productMarketplaceValidator,
+    orderId: v.string(),
+    orderTimestamp: v.number(),
+    fulfillmentTimestamp: v.optional(v.number()),
+    lines: v.array(orderLineValidator),
+    // SKUs whose existing rows must be left alone, e.g. Amazon lines that
+    // were queued as pending imports instead of written here.
+    retainSkus: v.optional(v.array(v.string())),
+};
+
+// Unfulfilled orders with no shipping cost yet aren't imported; their
+// existing rows (if any) are kept until the order has real costs.
+function isImportable(
+    marketplace: Infer<typeof productMarketplaceValidator>,
+    line: OrderLine,
+    fulfillmentTimestamp: number | undefined
+): boolean {
+    return (
+        line.shipping !== 0 ||
+        fulfillmentTimestamp !== undefined ||
+        marketplace === "TikTok"
+    );
+}
+
+async function upsertCatalogProduct(
+    ctx: MutationCtx,
+    userId: Id<"users">,
+    sku: string,
+    name: string
+): Promise<Doc<"products">> {
+    const existing = await ctx.db
         .query("products")
         .withIndex("by_user_and_sku", (q) =>
-            q.eq("userId", args.userId).eq("sku", args.sku)
+            q.eq("userId", userId).eq("sku", sku)
         )
         .first();
-
-    let productId: Id<"products">;
-
-    if (existingProduct) {
-        productId = existingProduct._id;
-        await ctx.db.patch(productId, {
-            name: args.name,
-        });
-    } else {
-        productId = await ctx.db.insert("products", {
-            sku: args.sku,
-            name: args.name,
-            userId: args.userId,
-        });
-    }
-
-    if (args.updateExisting && args.orderId && args.marketplace !== "Ebay") {
-        const existingMarketplaceProducts = await ctx.db
-            .query("marketplaceProducts")
-            .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
-            .filter((q) =>
-                q.and(
-                    q.eq(q.field("userId"), args.userId),
-                    q.eq(q.field("orderDate"), args.orderTimestamp),
-                    q.eq(q.field("sku"), args.sku),
-                    q.eq(q.field("marketplace"), args.marketplace)
-                )
-            )
-            .collect();
-
-        if (existingMarketplaceProducts.length > 0) {
-            for (const existingMp of existingMarketplaceProducts) {
-                await ctx.db.patch(existingMp._id, {
-                    productId,
-                    price: args.price,
-                    cost: existingProduct?.cost,
-                    fees: args.fees,
-                    fees_breakdown: args.fees_breakdown,
-                    shipping: args.shipping,
-                    shipping_breakdown: args.shipping_breakdown,
-                    shippingPercentage: args.shippingPercentage,
-                    buyerPaidShipping: args.buyerPaidShipping,
-                    tiktokFinanceStatus: args.tiktokFinanceStatus,
-                    shippingEstimated: args.shippingEstimated,
-                    isPickup: args.isPickup,
-                    isFBA: args.isFBA,
-                    fulfillmentDate: args.fulfillmentTimestamp,
-                    name: args.name,
-                });
-            }
-            if (args.marketplace === "Amazon" && args.fulfillmentTimestamp) {
-                await resolvePendingMarketplaceImportHandler(ctx, {
-                    userId: args.userId,
-                    marketplace: args.marketplace,
-                    sku: args.sku,
-                    orderTimestamp: args.orderTimestamp,
-                    orderId: args.orderId,
-                    fulfillmentTimestamp: args.fulfillmentTimestamp,
-                });
-            }
-            return;
+    if (existing) {
+        if (existing.name !== name) {
+            await ctx.db.patch(existing._id, { name });
         }
+        return existing;
+    }
+    const productId = await ctx.db.insert("products", { sku, name, userId });
+    return (await ctx.db.get(productId))!;
+}
+
+/**
+ * Make the stored rows for one order match `lines`, in one transaction.
+ *
+ * Each unit of quantity is one row. Rows are matched to units per SKU in
+ * creation order: matched rows are updated in place (keeping their id and
+ * their own cost), missing units are inserted with the catalog cost, and
+ * surplus rows are deleted. Rows for SKUs no longer in the order are deleted
+ * unless listed in `retainSkus`.
+ *
+ * A row's cost is a snapshot: the catalog cost only fills rows that have
+ * none, so a resync never overwrites a cost the user set.
+ */
+async function replaceOrderRowsHandler(
+    ctx: MutationCtx,
+    args: ObjectType<typeof replaceOrderRowsArgs>
+) {
+    const existingRows = await ctx.db
+        .query("marketplaceProducts")
+        .withIndex("by_order_id", (q) => q.eq("orderId", args.orderId))
+        .filter((q) =>
+            q.and(
+                q.eq(q.field("userId"), args.userId),
+                q.eq(q.field("orderDate"), args.orderTimestamp),
+                q.eq(q.field("marketplace"), args.marketplace)
+            )
+        )
+        .collect();
+    existingRows.sort((a, b) => a._creationTime - b._creationTime);
+
+    const retained = new Set(args.retainSkus ?? []);
+    const unitsBySku = new Map<string, OrderLine[]>();
+    for (const line of args.lines) {
+        if (!isImportable(args.marketplace, line, args.fulfillmentTimestamp)) {
+            retained.add(line.sku);
+            continue;
+        }
+        const units = unitsBySku.get(line.sku) ?? [];
+        for (let unit = 0; unit < line.quantity; unit++) units.push(line);
+        unitsBySku.set(line.sku, units);
     }
 
-    await ctx.db.insert("marketplaceProducts", {
-        productId,
-        marketplace: args.marketplace,
-        price: args.price,
-        cost: existingProduct?.cost,
-        fees: args.fees,
-        fees_breakdown: args.fees_breakdown,
-        shipping: args.shipping,
-        shipping_breakdown: args.shipping_breakdown,
-        shippingPercentage: args.shippingPercentage,
-        buyerPaidShipping: args.buyerPaidShipping,
-        tiktokFinanceStatus: args.tiktokFinanceStatus,
-        shippingEstimated: args.shippingEstimated,
-        isPickup: args.isPickup,
-        isFBA: args.isFBA,
-        orderDate: args.orderTimestamp,
-        fulfillmentDate: args.fulfillmentTimestamp,
-        userId: args.userId,
-        orderId: args.orderId,
-        sku: args.sku,
-        name: args.name,
-    });
+    const rowsBySku = new Map<string, Doc<"marketplaceProducts">[]>();
+    for (const row of existingRows) {
+        const sku = row.sku ?? "";
+        rowsBySku.set(sku, [...(rowsBySku.get(sku) ?? []), row]);
+    }
 
-    if (args.marketplace === "Amazon" && args.fulfillmentTimestamp) {
-        await resolvePendingMarketplaceImportHandler(ctx, {
-            userId: args.userId,
-            marketplace: args.marketplace,
-            sku: args.sku,
-            orderTimestamp: args.orderTimestamp,
-            orderId: args.orderId,
-            fulfillmentTimestamp: args.fulfillmentTimestamp,
-        });
+    for (const [sku, rows] of rowsBySku) {
+        if (unitsBySku.has(sku) || retained.has(sku)) continue;
+        for (const row of rows) await ctx.db.delete(row._id);
+    }
+
+    for (const [sku, units] of unitsBySku) {
+        const product = await upsertCatalogProduct(
+            ctx,
+            args.userId,
+            sku,
+            units[0].name
+        );
+        const rows = rowsBySku.get(sku) ?? [];
+
+        for (let i = 0; i < units.length; i++) {
+            const line = units[i];
+            const fields = {
+                productId: product._id,
+                name: line.name,
+                price: line.price,
+                fees: line.fees,
+                fees_breakdown: line.fees_breakdown,
+                shipping: line.shipping,
+                shipping_breakdown: line.shipping_breakdown,
+                shippingPercentage: line.shippingPercentage,
+                buyerPaidShipping: line.buyerPaidShipping,
+                tiktokFinanceStatus: line.tiktokFinanceStatus,
+                shippingEstimated: line.shippingEstimated,
+                isPickup: line.isPickup,
+                isFBA: line.isFBA,
+                fulfillmentDate: args.fulfillmentTimestamp,
+            };
+            const row = rows[i];
+            if (row) {
+                await ctx.db.patch(row._id, {
+                    ...fields,
+                    cost: row.cost ?? product.cost,
+                });
+            } else {
+                await ctx.db.insert("marketplaceProducts", {
+                    ...fields,
+                    cost: product.cost,
+                    marketplace: args.marketplace,
+                    orderDate: args.orderTimestamp,
+                    orderId: args.orderId,
+                    sku,
+                    userId: args.userId,
+                });
+            }
+        }
+        for (const row of rows.slice(units.length)) {
+            await ctx.db.delete(row._id);
+        }
+
+        if (args.marketplace === "Amazon" && args.fulfillmentTimestamp) {
+            await resolvePendingMarketplaceImportHandler(ctx, {
+                userId: args.userId,
+                marketplace: args.marketplace,
+                sku,
+                orderTimestamp: args.orderTimestamp,
+                orderId: args.orderId,
+                fulfillmentTimestamp: args.fulfillmentTimestamp,
+            });
+        }
     }
 }
 
-export const upsertMarketplaceProduct = internalMutation({
-    args: upsertMarketplaceProductArgs,
-    handler: async (ctx, args) => {
-        await upsertMarketplaceProductHandler(ctx, args);
-    },
-});
-
-export const upsertMarketplaceProductUnits = internalMutation({
-    args: {
-        ...upsertMarketplaceProductArgs,
-        quantity: v.number(),
-    },
-    handler: async (ctx, { quantity, ...product }) => {
-        for (let unit = 0; unit < quantity; unit++) {
-            await upsertMarketplaceProductHandler(ctx, product);
-        }
-    },
+export const replaceOrderRows = internalMutation({
+    args: replaceOrderRowsArgs,
+    handler: replaceOrderRowsHandler,
 });
 
 export const upsertPendingMarketplaceImport = internalMutation({
