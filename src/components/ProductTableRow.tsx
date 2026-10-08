@@ -182,7 +182,7 @@ export function ProductTableRow({
                     ) : (
                         <button
                             onClick={() =>
-                                onStartEditing(product._id, product.cost || 0)
+                                onStartEditing(product._id, product.cost)
                             }
                             className={`hover:bg-accent px-2 py-1 rounded w-24 text-right ${product.cost === undefined ? "text-destructive font-semibold" : ""}`}
                         >

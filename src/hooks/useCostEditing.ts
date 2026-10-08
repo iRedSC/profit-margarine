@@ -2,6 +2,15 @@ import { useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { toast } from "sonner";
 
+/** Blank clears the cost; any number, including 0, is a real cost. */
+export function parseCostInput(
+  value: string
+): { kind: "clear" } | { kind: "set"; cost: number } | { kind: "invalid" } {
+  if (value.trim() === "") return { kind: "clear" };
+  const cost = parseFloat(value);
+  return isNaN(cost) ? { kind: "invalid" } : { kind: "set", cost };
+}
+
 export function useCostEditing(
   updateMarketplaceCost: (args: { marketplaceProductId: Id<"marketplaceProducts">; cost: number | undefined }) => Promise<null>
 ) {
@@ -10,11 +19,13 @@ export function useCostEditing(
 
   const startEditing = (marketplaceProductId: Id<"marketplaceProducts">, currentCost: number | undefined) => {
     setEditingCostId(marketplaceProductId);
-    setEditingCostValue((currentCost || 0).toString());
+    // Blank means "no cost yet", which is different from a known cost of 0.
+    setEditingCostValue(currentCost === undefined ? "" : currentCost.toString());
   };
 
   const saveCost = async (marketplaceProductId: Id<"marketplaceProducts">): Promise<void> => {
-    if (editingCostValue.trim() === "") {
+    const parsed = parseCostInput(editingCostValue);
+    if (parsed.kind === "clear") {
       setEditingCostId(null);
       try {
         await updateMarketplaceCost({ marketplaceProductId, cost: undefined });
@@ -25,20 +36,16 @@ export function useCostEditing(
       return;
     }
 
-    const newCost = parseFloat(editingCostValue);
-    if (isNaN(newCost)) {
+    if (parsed.kind === "invalid") {
       toast.error("Please enter a valid number");
       return;
     }
 
     setEditingCostId(null);
 
-    // If cost is 0, unset it instead of setting it to 0
-    const costToSave = newCost === 0 ? undefined : newCost;
-
     try {
-      await updateMarketplaceCost({ marketplaceProductId, cost: costToSave });
-      toast.success(costToSave === undefined ? "Cost cleared" : "Cost updated");
+      await updateMarketplaceCost({ marketplaceProductId, cost: parsed.cost });
+      toast.success("Cost updated");
     } catch {
       toast.error("Failed to update cost");
     }
